@@ -1,0 +1,17 @@
+{
+  "name": "docdrop-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch --env-file-if-exists=.env src/index.js",
+    "start": "node --env-file-if-exists=.env src/index.js",
+    "models": "node --env-file-if-exists=.env scripts/list-models.js"
+  },
+  "dependencies": {
+    "express": "^5.3.0",
+    "mammoth": "^1.13.0",
+    "multer": "^2.5.0",
+    "unpdf": "^1.9.1"
+  }
+}
