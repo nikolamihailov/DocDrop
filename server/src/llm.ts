@@ -44,17 +44,48 @@ function headers(apiKey: string | undefined): Record<string, string> {
   };
 }
 
-/** Send a conversation to the model and get its reply as a string. */
+const MAX_RETRIES = 5;
+const MAX_WAIT_MS = 30_000;
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * How long the provider wants us to wait after a 429 ("too many requests").
+ * Groq/OpenAI send a `retry-after` header in seconds; we fall back to exponential backoff.
+ */
+function retryDelayMs(res: Response, attempt: number): number {
+  const header = Number(res.headers.get('retry-after'));
+  const ms = header > 0 ? header * 1000 : 2 ** attempt * 1000;
+  return Math.min(ms + 250, MAX_WAIT_MS); // small buffer so we don't arrive a moment too early
+}
+
+/** Send a conversation to the model and get its reply as a string. Retries on 429. */
 export async function chat(messages: ChatMessage[], { temperature = 0.3 }: ChatOptions = {}): Promise<string> {
   const { baseUrl, apiKey, model } = config();
 
-  const res = await fetch(`${baseUrl}/chat/completions`, {
-    method: 'POST',
-    headers: headers(apiKey),
-    body: JSON.stringify({ model, messages, temperature }),
-  });
+  let res: Response;
+  for (let attempt = 0; ; attempt++) {
+    res = await fetch(`${baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: headers(apiKey),
+      body: JSON.stringify({ model, messages, temperature }),
+    });
+
+    // Rate limited (free tiers allow only so many tokens per minute): wait and try again.
+    if (res.status === 429 && attempt < MAX_RETRIES) {
+      const wait = retryDelayMs(res, attempt);
+      console.log(`[llm] rate limited, retrying in ${wait}ms (attempt ${attempt + 1}/${MAX_RETRIES})`);
+      await res.text(); // drain the body so the connection can be reused
+      await sleep(wait);
+      continue;
+    }
+    break;
+  }
 
   if (!res.ok) {
+    if (res.status === 429) {
+      throw new Error('The AI provider is rate-limiting us (free tier). Wait a minute and try again.');
+    }
     throw new Error(`LLM request failed (${res.status}): ${await res.text()}`);
   }
 
