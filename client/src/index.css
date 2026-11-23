@@ -2,6 +2,14 @@
 /* Typography plugin: the `prose` classes that style rendered Markdown (headings, lists…). */
 @plugin '@tailwindcss/typography';
 
+/* THEME: dark only.
+   By default Tailwind's `dark:` classes follow the device setting (prefers-color-scheme).
+   This line makes them apply whenever an ancestor has class="dark", and index.html puts
+   that class on <html>, so the app is always dark. The light styles are still in the
+   components (the classes without `dark:`). To follow the device setting again,
+   comment out the line below and remove class="dark" from <html>. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme {
   --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
 
@@ -20,8 +28,13 @@
   --color-brand-950: var(--color-red-950);
 }
 
-/* Tailwind v4 resets buttons to the default arrow cursor; bring back the pointer. */
 @layer base {
+  /* Dark scrollbars and form controls to match the dark-only theme. */
+  html.dark {
+    color-scheme: dark;
+  }
+
+  /* Tailwind v4 resets buttons to the default arrow cursor; bring back the pointer. */
   button:not(:disabled),
   [role='button']:not(:disabled) {
     cursor: pointer;
