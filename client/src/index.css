@@ -1,0 +1,21 @@
+@import 'tailwindcss';
+/* Typography plugin: the `prose` classes that style rendered Markdown (headings, lists…). */
+@plugin '@tailwindcss/typography';
+
+@theme {
+  --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+
+  /* Brand palette: components use `brand-*` classes (bg-brand-600, text-brand-400…).
+     To re-theme the whole app, point these at another Tailwind palette, e.g. rose or emerald. */
+  --color-brand-50: var(--color-red-50);
+  --color-brand-100: var(--color-red-100);
+  --color-brand-200: var(--color-red-200);
+  --color-brand-300: var(--color-red-300);
+  --color-brand-400: var(--color-red-400);
+  --color-brand-500: var(--color-red-500);
+  --color-brand-600: var(--color-red-600);
+  --color-brand-700: var(--color-red-700);
+  --color-brand-800: var(--color-red-800);
+  --color-brand-900: var(--color-red-900);
+  --color-brand-950: var(--color-red-950);
+}

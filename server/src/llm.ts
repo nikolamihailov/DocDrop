@@ -2,7 +2,34 @@
 // We use plain fetch (no SDK) so you can see exactly what goes over the wire.
 // Every provider in .env.example accepts this same request shape.
 
-function config() {
+export type Role = 'system' | 'user' | 'assistant';
+
+export interface ChatMessage {
+  role: Role;
+  content: string;
+}
+
+interface ChatOptions {
+  temperature?: number;
+}
+
+// Only the parts of the provider's response we actually use.
+interface ChatCompletionResponse {
+  choices: { message: { content: string | null } }[];
+  usage?: Record<string, unknown>;
+}
+
+interface ModelsResponse {
+  data: { id: string }[];
+}
+
+interface LlmConfig {
+  baseUrl: string;
+  apiKey: string | undefined;
+  model: string;
+}
+
+function config(): LlmConfig {
   const { LLM_BASE_URL, LLM_API_KEY, LLM_MODEL } = process.env;
   if (!LLM_BASE_URL || !LLM_MODEL) {
     throw new Error('LLM_BASE_URL and LLM_MODEL must be set. Copy server/.env.example to server/.env');
@@ -10,18 +37,15 @@ function config() {
   return { baseUrl: LLM_BASE_URL.replace(/\/$/, ''), apiKey: LLM_API_KEY, model: LLM_MODEL };
 }
 
-function headers(apiKey) {
+function headers(apiKey: string | undefined): Record<string, string> {
   return {
     'Content-Type': 'application/json',
     ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
   };
 }
 
-/**
- * Send a conversation to the model and get its reply as a string.
- * @param {{role: 'system'|'user'|'assistant', content: string}[]} messages
- */
-export async function chat(messages, { temperature = 0.3 } = {}) {
+/** Send a conversation to the model and get its reply as a string. */
+export async function chat(messages: ChatMessage[], { temperature = 0.3 }: ChatOptions = {}): Promise<string> {
   const { baseUrl, apiKey, model } = config();
 
   const res = await fetch(`${baseUrl}/chat/completions`, {
@@ -34,20 +58,22 @@ export async function chat(messages, { temperature = 0.3 } = {}) {
     throw new Error(`LLM request failed (${res.status}): ${await res.text()}`);
   }
 
-  const data = await res.json();
+  // res.json() returns `any`; we tell TypeScript what shape we expect.
+  // (It's a promise, not a runtime check. A schema library like zod would validate it.)
+  const data = (await res.json()) as ChatCompletionResponse;
   // data.usage shows how many tokens you spent. Worth watching while learning.
   if (data.usage) console.log('[llm] tokens:', data.usage);
-  return data.choices[0].message.content;
+  return data.choices[0]?.message.content ?? '';
 }
 
-export async function listModels() {
+export async function listModels(): Promise<string[]> {
   const { baseUrl, apiKey } = config();
   const res = await fetch(`${baseUrl}/models`, { headers: headers(apiKey) });
   if (!res.ok) throw new Error(`Listing models failed (${res.status}): ${await res.text()}`);
-  const data = await res.json();
+  const data = (await res.json()) as ModelsResponse;
   return data.data.map((m) => m.id);
 }
 
-export function currentModel() {
+export function currentModel(): string {
   return config().model;
 }

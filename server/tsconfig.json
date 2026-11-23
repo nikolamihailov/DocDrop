@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    // NodeNext = follow Node's real ESM rules. That's why relative imports end in ".js":
+    // they point at the compiled output file, even though the source file is ".ts".
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "rootDir": "src",
+    "outDir": "dist",
+    "types": ["node"],
+    "skipLibCheck": true
+  },
+  "include": ["src"]
+}

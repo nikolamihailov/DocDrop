@@ -1,7 +1,7 @@
 # DocDrop
 
 Upload a document (PDF, DOCX, TXT, MD) and get an AI-written summary.
-A deliberately small React + Express project for learning how LLM apps work, built to grow into RAG and "chat with your documents".
+A deliberately small React + Express project (TypeScript on both sides, Tailwind CSS for styling) for learning how LLM apps work, built to grow into RAG and "chat with your documents".
 
 ## Run it
 
@@ -19,13 +19,15 @@ cd server
 npm install
 cp .env.example .env      # then edit .env: paste your key / pick your provider
 npm run models            # optional: lists model names your provider offers
-npm run dev               # http://localhost:3001
+npm run dev               # http://localhost:3001 (tsx runs the .ts files directly and restarts on change)
 
 # 2. Frontend (second terminal)
 cd client
 npm install
 npm run dev               # open http://localhost:5173
 ```
+
+Other scripts (both folders): `npm run typecheck` checks types without running anything; `npm run build` produces the production build (server: `dist/`, run with `npm start`).
 
 > Free tiers have rate limits, and some (e.g. Gemini's free tier) may use your inputs to improve their models. Don't upload confidential documents unless you use Ollama.
 
@@ -36,22 +38,25 @@ Browser (React)                     Express server                          LLM 
 ───────────────                     ──────────────                          ────────────
 pick file ──FormData POST /api/summarize──▶ multer: file bytes in memory
                                      │
-                                     ▼  extract.js   PDF/DOCX ─▶ plain text
-                                     ▼  chunk.js     text ─▶ chunks of ~12k chars
-                                     ▼  summarize.js prompts ──HTTP POST /chat/completions──▶ model
+                                     ▼  extract.ts   PDF/DOCX ─▶ plain text
+                                     ▼  chunk.ts     text ─▶ chunks of ~12k chars
+                                     ▼  summarize.ts prompts ──HTTP POST /chat/completions──▶ model
                                      ◀──────────────────────────────────── summary text
 ◀──────────── JSON { summary, stats }
 ```
 
 | File | What to learn there |
 |---|---|
-| [server/src/llm.js](server/src/llm.js) | The **entire** LLM integration: one `fetch` call. Messages, roles, model, temperature, token usage. |
-| [server/src/extract.js](server/src/extract.js) | LLMs read text, not files. Every format needs a parser (`unpdf`, `mammoth`). |
-| [server/src/chunk.js](server/src/chunk.js) | Context windows are finite, so long text gets split, with overlap. |
-| [server/src/summarize.js](server/src/summarize.js) | Prompting, plus the **map-reduce** pattern for documents bigger than one call. |
-| [server/src/index.js](server/src/index.js) | The Express route that wires the pipeline together. |
-| [client/src/App.jsx](client/src/App.jsx) | Uploading a file with `FormData` and showing the result. |
-| [client/vite.config.js](client/vite.config.js) | Dev proxy: `/api` goes to Express, so you need no CORS setup. |
+| [server/src/llm.ts](server/src/llm.ts) | The **entire** LLM integration: one `fetch` call. Messages, roles, model, temperature, token usage. |
+| [server/src/extract.ts](server/src/extract.ts) | LLMs read text, not files. Every format needs a parser (`unpdf`, `mammoth`). |
+| [server/src/chunk.ts](server/src/chunk.ts) | Context windows are finite, so long text gets split, with overlap. |
+| [server/src/summarize.ts](server/src/summarize.ts) | Prompting, plus the **map-reduce** pattern for documents bigger than one call. |
+| [server/src/index.ts](server/src/index.ts) | The Express routes that wire the pipeline together. |
+| [server/src/types.ts](server/src/types.ts) | The API's response shapes (copied to `client/src/types.ts`; keep them in sync). |
+| [client/src/api.ts](client/src/api.ts) | Calling the backend: uploading a file with `FormData`. |
+| [client/src/App.tsx](client/src/App.tsx) | Page layout and request state (a TypeScript discriminated union). |
+| [client/src/components/](client/src/components/) | `Dropzone` (file picking) and `SummaryCard` (renders the Markdown summary). |
+| [client/vite.config.ts](client/vite.config.ts) | Dev proxy: `/api` goes to Express, so you need no CORS setup. |
 
 ## Key concepts
 
@@ -65,10 +70,10 @@ pick file ──FormData POST /api/summarize──▶ multer: file bytes in memo
 
 ## Experiments to try
 
-1. Change `SYSTEM_PROMPT` / `FINAL_INSTRUCTIONS` in `summarize.js` (e.g. "summarize for a 10-year-old", "output JSON").
+1. Change `SYSTEM_PROMPT` / `FINAL_INSTRUCTIONS` in `summarize.ts` (e.g. "summarize for a 10-year-old", "output JSON").
 2. Set `CHUNK_SIZE=2000` in `.env` and watch map-reduce kick in (server logs show each chunk).
 3. Switch providers and compare quality and speed (the stats line shows the model and time).
-4. Change `temperature` in `llm.js` to 1.2 and summarize the same file twice.
+4. Change `temperature` in `llm.ts` to 1.2 and summarize the same file twice.
 5. Add `stream: true` and stream the summary to the browser token by token (Server-Sent Events).
 
 ## Roadmap to RAG + chat
@@ -76,16 +81,16 @@ pick file ──FormData POST /api/summarize──▶ multer: file bytes in memo
 RAG (Retrieval-Augmented Generation) = instead of sending the *whole* document, find only the chunks relevant to a question and send those.
 
 1. **Store documents.** Keep the extracted text and chunks after upload (start with a JSON file or SQLite).
-2. **Embeddings.** Turn each chunk into a vector (a list of numbers capturing meaning) via an embeddings endpoint. Gemini and Ollama (`nomic-embed-text`) both offer free ones. Same pattern as `llm.js`: `POST /embeddings`.
+2. **Embeddings.** Turn each chunk into a vector (a list of numbers capturing meaning) via an embeddings endpoint. Gemini and Ollama (`nomic-embed-text`) both offer free ones. Same pattern as `llm.ts`: `POST /embeddings`.
 3. **Vector search.** Embed the user's question and find the chunks with the highest cosine similarity. Start with a plain in-memory array and a loop. Later use a vector DB (sqlite-vec, pgvector, Chroma, LanceDB).
 4. **Answer.** Prompt: "Answer using only these excerpts: …". Add the question and return the answer, ideally citing which chunks it used.
 5. **Chat.** Keep the message history on the client and send it with every question (the model is stateless).
 6. **Improve.** Better chunking (by headings/sentences), more docs per user, reranking, evaluation.
 
-`chunk.js` and `llm.js` are already the building blocks for steps 2–4.
+`chunk.ts` and `llm.ts` are already the building blocks for steps 2–4.
 
 ## Limitations (on purpose)
 
 - Old `.doc` files and scanned PDFs (images) are not supported. Those would need conversion or OCR.
-- Upload limit is 10 MB. Nothing is persisted.
+- Upload limit is 4 MB (Vercel caps request bodies at 4.5 MB). Nothing is persisted.
 - No auth, no streaming, no tests: kept minimal so every line is easy to read.

@@ -26,7 +26,12 @@ Rules:
 - Summarize and prioritize; do NOT list every fact from the document.
 - No introduction or closing remarks, just the summary.`;
 
-export async function summarizeDocument(text) {
+export interface SummaryResult {
+  summary: string;
+  chunks: number;
+}
+
+export async function summarizeDocument(text: string): Promise<SummaryResult> {
   const chunkSize = Number(process.env.CHUNK_SIZE) || 12000;
   const chunks = chunkText(text, { chunkSize });
 
@@ -39,7 +44,7 @@ export async function summarizeDocument(text) {
   }
 
   // MAP: one call per chunk. Sequential (not Promise.all) to stay under free-tier rate limits.
-  const partials = [];
+  const partials: string[] = [];
   for (const [i, chunk] of chunks.entries()) {
     console.log(`[summarize] chunk ${i + 1}/${chunks.length}`);
     partials.push(

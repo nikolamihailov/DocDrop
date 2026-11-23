@@ -9,9 +9,15 @@ export const SUPPORTED_EXTENSIONS = ['.pdf', '.docx', '.txt', '.md'];
 // Errors caused by the user's input (returned as HTTP 400 instead of 500).
 export class UserError extends Error {}
 
-export async function extractTextFromFile(file) {
+// Just the fields we need, so this works with multer's file object or anything similar.
+export interface UploadedFile {
+  originalname: string;
+  buffer: Buffer;
+}
+
+export async function extractTextFromFile(file: UploadedFile): Promise<string> {
   const ext = path.extname(file.originalname).toLowerCase();
-  let text;
+  let text: string;
 
   if (ext === '.pdf') {
     const pdf = await getDocumentProxy(new Uint8Array(file.buffer));
