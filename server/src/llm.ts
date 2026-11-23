@@ -11,6 +11,8 @@ export interface ChatMessage {
 
 interface ChatOptions {
   temperature?: number;
+  /** Called before waiting out a rate limit, so the caller can tell the user. */
+  onRateLimit?: (waitMs: number) => void;
 }
 
 // Only the parts of the provider's response we actually use.
@@ -60,7 +62,10 @@ function retryDelayMs(res: Response, attempt: number): number {
 }
 
 /** Send a conversation to the model and get its reply as a string. Retries on 429. */
-export async function chat(messages: ChatMessage[], { temperature = 0.3 }: ChatOptions = {}): Promise<string> {
+export async function chat(
+  messages: ChatMessage[],
+  { temperature = 0.3, onRateLimit }: ChatOptions = {},
+): Promise<string> {
   const { baseUrl, apiKey, model } = config();
 
   let res: Response;
@@ -75,6 +80,7 @@ export async function chat(messages: ChatMessage[], { temperature = 0.3 }: ChatO
     if (res.status === 429 && attempt < MAX_RETRIES) {
       const wait = retryDelayMs(res, attempt);
       console.log(`[llm] rate limited, retrying in ${wait}ms (attempt ${attempt + 1}/${MAX_RETRIES})`);
+      onRateLimit?.(wait);
       await res.text(); // drain the body so the connection can be reused
       await sleep(wait);
       continue;

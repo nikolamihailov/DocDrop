@@ -21,6 +21,22 @@ export interface SummarizeResponse {
   stats: SummaryStats;
 }
 
+/** What the server is doing right now, streamed to the client while it works. */
+export type ProgressStage =
+  | { stage: 'extracting' }
+  | { stage: 'summarizing'; part: number; total: number }
+  | { stage: 'combining' }
+  | { stage: 'waiting'; seconds: number }; // rate-limited by the LLM provider
+
+/**
+ * POST /api/summarize streams these as NDJSON: one JSON object per line.
+ * Zero or more `progress` events, then exactly one `result` or `error`.
+ */
+export type SummarizeEvent =
+  | ({ type: 'progress' } & ProgressStage)
+  | { type: 'result'; result: SummarizeResponse }
+  | { type: 'error'; error: string };
+
 export interface HealthResponse {
   ok: boolean;
   model: string | null;

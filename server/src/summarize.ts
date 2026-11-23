@@ -1,8 +1,9 @@
 // Step 3: ask the LLM for a summary.
 // Short docs: one call. Long docs use "map-reduce": summarize each chunk (map),
 // then summarize those summaries into one (reduce).
-import { chat } from './llm.js';
+import { chat, type ChatMessage } from './llm.js';
 import { chunkText } from './chunk.js';
+import type { ProgressStage } from './types.js';
 
 const SYSTEM_PROMPT =
   'You are an assistant that summarizes documents. ' +
@@ -31,12 +32,20 @@ export interface SummaryResult {
   chunks: number;
 }
 
-export async function summarizeDocument(text: string): Promise<SummaryResult> {
+export async function summarizeDocument(
+  text: string,
+  onProgress: (progress: ProgressStage) => void = () => {},
+): Promise<SummaryResult> {
   const chunkSize = Number(process.env.CHUNK_SIZE) || 12000;
   const chunks = chunkText(text, { chunkSize });
 
+  // Every LLM call reports rate-limit waits, so the user sees why it's slow.
+  const ask = (messages: ChatMessage[]) =>
+    chat(messages, { onRateLimit: (ms) => onProgress({ stage: 'waiting', seconds: Math.ceil(ms / 1000) }) });
+
   if (chunks.length === 1) {
-    const summary = await chat([
+    onProgress({ stage: 'summarizing', part: 1, total: 1 });
+    const summary = await ask([
       { role: 'system', content: SYSTEM_PROMPT },
       { role: 'user', content: `${FINAL_INSTRUCTIONS}\n\n<document>\n${chunks[0]}\n</document>` },
     ]);
@@ -47,8 +56,9 @@ export async function summarizeDocument(text: string): Promise<SummaryResult> {
   const partials: string[] = [];
   for (const [i, chunk] of chunks.entries()) {
     console.log(`[summarize] chunk ${i + 1}/${chunks.length}`);
+    onProgress({ stage: 'summarizing', part: i + 1, total: chunks.length });
     partials.push(
-      await chat([
+      await ask([
         { role: 'system', content: SYSTEM_PROMPT },
         {
           role: 'user',
@@ -60,12 +70,14 @@ export async function summarizeDocument(text: string): Promise<SummaryResult> {
     );
   }
 
+  onProgress({ stage: 'combining' });
+
   // REDUCE: combine the partial summaries into one.
   const combined = partials
     .map((p, i) => `<part_summary index="${i + 1}">\n${p}\n</part_summary>`)
     .join('\n\n');
 
-  const summary = await chat([
+  const summary = await ask([
     { role: 'system', content: SYSTEM_PROMPT },
     {
       role: 'user',

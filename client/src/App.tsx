@@ -2,14 +2,15 @@ import { useEffect, useState } from 'react';
 import { CircleAlert, FileText, LoaderCircle, Sparkles } from 'lucide-react';
 import Dropzone, { ACCEPTED_EXTENSIONS, MAX_FILE_BYTES } from './components/Dropzone';
 import SummaryCard, { SummarySkeleton } from './components/SummaryCard';
+import ProgressCard from './components/ProgressCard';
 import { getHealth, summarizeFile } from './api';
-import type { SummarizeResponse } from './types';
+import type { ProgressStage, SummarizeResponse } from './types';
 
 // A "discriminated union": `status` tells TypeScript which other fields exist.
 // e.g. `result` is only accessible when status === 'success'.
 type RequestState =
   | { status: 'idle' }
-  | { status: 'loading' }
+  | { status: 'loading'; progress: ProgressStage | null }
   | { status: 'success'; result: SummarizeResponse }
   | { status: 'error'; message: string };
 
@@ -42,9 +43,10 @@ export default function App() {
 
   async function handleSummarize() {
     if (!file) return;
-    setState({ status: 'loading' });
+    setState({ status: 'loading', progress: null });
     try {
-      setState({ status: 'success', result: await summarizeFile(file) });
+      const result = await summarizeFile(file, (progress) => setState({ status: 'loading', progress }));
+      setState({ status: 'success', result });
     } catch (err) {
       setState({ status: 'error', message: err instanceof Error ? err.message : String(err) });
     }
@@ -103,7 +105,12 @@ export default function App() {
         </div>
 
         <div className="mt-10">
-          {state.status === 'loading' && <SummarySkeleton />}
+          {state.status === 'loading' && (
+            <div className="space-y-4">
+              <ProgressCard progress={state.progress} />
+              <SummarySkeleton />
+            </div>
+          )}
           {state.status === 'success' && <SummaryCard result={state.result} />}
         </div>
       </div>

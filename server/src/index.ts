@@ -2,7 +2,13 @@ import express, { type ErrorRequestHandler } from 'express';
 import { extractTextFromFile, UserError } from './extract.js';
 import { summarizeDocument } from './summarize.js';
 import { currentModel } from './llm.js';
-import type { ErrorResponse, HealthResponse, SummarizeRequest, SummarizeResponse } from './types.js';
+import type {
+  ErrorResponse,
+  HealthResponse,
+  SummarizeEvent,
+  SummarizeRequest,
+  SummarizeResponse,
+} from './types.js';
 
 const app = express();
 const PORT = Number(process.env.PORT) || 3001;
@@ -23,33 +29,56 @@ app.get('/api/health', (_req, res) => {
 });
 
 // The whole pipeline: upload -> extract text -> chunk -> LLM -> summary.
-// Express 5 forwards errors thrown in async handlers to the error handler below,
-// so no try/catch is needed here.
+//
+// Instead of one JSON answer at the end, this route STREAMS its progress: it writes
+// one JSON object per line (NDJSON) as it goes, and the browser reads them as they
+// arrive. That's how the page can show "Summarizing part 3 of 5…" live.
+// (Server-Sent Events is a similar format, but the browser's EventSource only
+// supports GET requests, and we need to POST the file.)
 app.post('/api/summarize', async (req, res) => {
+  // Problems with the request itself are thrown BEFORE streaming starts, so they
+  // still become normal JSON errors with a 4xx status (Express 5 forwards errors
+  // thrown in async handlers to the error handler below).
   const { fileName, data } = (req.body ?? {}) as Partial<SummarizeRequest>;
   if (typeof fileName !== 'string' || typeof data !== 'string' || !fileName || !data) {
     throw new UserError('Expected JSON { fileName, data } with the file base64-encoded in "data"');
   }
-
   const buffer = Buffer.from(data, 'base64');
   if (buffer.length > MAX_FILE_BYTES) throw new UserError('File is too large. The maximum size is 3 MB.');
 
-  const started = Date.now();
-  const text = await extractTextFromFile({ originalname: fileName, buffer });
-  const { summary, chunks } = await summarizeDocument(text);
+  // From here on, the status is 200 and everything (including errors) is an event.
+  res.status(200).set({
+    'Content-Type': 'application/x-ndjson; charset=utf-8',
+    'Cache-Control': 'no-cache, no-transform', // don't let proxies buffer or compress it
+    'X-Accel-Buffering': 'no',
+  });
+  res.flushHeaders();
+  const send = (event: SummarizeEvent) => res.write(JSON.stringify(event) + '\n');
 
-  const body: SummarizeResponse = {
-    fileName,
-    summary,
-    stats: {
-      characters: text.length,
-      approxTokens: Math.round(text.length / 4),
-      chunks,
-      model: currentModel(),
-      ms: Date.now() - started,
-    },
-  };
-  res.json(body);
+  try {
+    const started = Date.now();
+    send({ type: 'progress', stage: 'extracting' });
+    const text = await extractTextFromFile({ originalname: fileName, buffer });
+    const { summary, chunks } = await summarizeDocument(text, (progress) => send({ type: 'progress', ...progress }));
+
+    const result: SummarizeResponse = {
+      fileName,
+      summary,
+      stats: {
+        characters: text.length,
+        approxTokens: Math.round(text.length / 4),
+        chunks,
+        model: currentModel(),
+        ms: Date.now() - started,
+      },
+    };
+    send({ type: 'result', result });
+  } catch (err) {
+    if (!(err instanceof UserError)) console.error(err);
+    send({ type: 'error', error: err instanceof Error ? err.message : 'Unknown error' });
+  } finally {
+    res.end();
+  }
 });
 
 // Central error handler: user mistakes -> 4xx, everything else -> 500.
