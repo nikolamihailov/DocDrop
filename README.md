@@ -5,20 +5,26 @@ A deliberately small React + Express project (TypeScript on both sides, Tailwind
 
 ## Run it
 
-You need Node 22+ and a free LLM. Pick one provider:
+You need Node 22+ and at least one free LLM provider:
 
 | Provider | Cost | Setup |
 |---|---|---|
-| **Google Gemini** (default) | Free tier | Get a key at https://aistudio.google.com/apikey |
-| **Groq** | Free tier | Get a key at https://console.groq.com/keys |
+| **Groq** (default model) | Free tier | Get a key at https://console.groq.com/keys |
+| **Google Gemini** (optional, long documents) | Free tier | Get a key at https://aistudio.google.com/apikey |
 | **Ollama** | Free, runs on your PC | Install https://ollama.com, then `ollama pull llama3.2` |
+
+**Two models, on purpose.** Groq is very fast, but its free tier allows only ~8k tokens per minute, so a long document (split into many chunks) spends most of its time waiting out rate limits. Gemini has a huge context window, so it reads a long document in **one** call. The server picks automatically ([summarize.ts](server/src/summarize.ts)):
+
+- fits in one Groq request (`CHUNK_SIZE`): **Groq**
+- longer, and `LARGE_LLM_*` is set: **Gemini**, one call
+- otherwise, or if Gemini fails: **Groq, chunk by chunk** (map-reduce)
 
 ```bash
 # 1. Backend
 cd server
 npm install
 cp .env.example .env      # then edit .env: paste your key / pick your provider
-npm run models            # optional: lists model names your provider offers
+npm run models            # optional: lists model names your provider offers (add "-- large" for the long-document provider)
 npm run dev               # http://localhost:3001 (tsx runs the .ts files directly and restarts on change)
 
 # 2. Frontend (second terminal)

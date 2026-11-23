@@ -1,6 +1,7 @@
-// The ONLY file that talks to the LLM.
+// The ONLY file that talks to LLMs.
 // We use plain fetch (no SDK) so you can see exactly what goes over the wire.
-// Every provider in .env.example accepts this same request shape.
+// Every provider in .env.example accepts this same "OpenAI-compatible" request shape,
+// so a provider is just three settings: base URL, API key and model name.
 
 export type Role = 'system' | 'user' | 'assistant';
 
@@ -9,34 +10,71 @@ export interface ChatMessage {
   content: string;
 }
 
+/**
+ * We can have two providers configured:
+ * - `default` (LLM_*): used for normal-sized documents. Groq: very fast, small rate limits.
+ * - `large` (LARGE_LLM_*, optional): used for long documents. Gemini: a huge context
+ *   window, so a whole long document fits in ONE call instead of many small ones.
+ */
+export type ProviderName = 'default' | 'large';
+
+export interface LlmProvider {
+  name: ProviderName;
+  baseUrl: string;
+  apiKey: string | undefined;
+  model: string;
+  /**
+   * For "reasoning" models (gpt-oss, Gemini Flash…): how much they think before
+   * answering: "low" | "medium" | "high". Unset = the provider's default. Summaries
+   * don't need deep thought, and on "medium" gpt-oss sometimes spent its entire
+   * output budget reasoning (e.g. counting words) and returned an empty answer.
+   */
+  reasoningEffort: string | undefined;
+}
+
+/** Returns the provider's settings, or null if it isn't configured. */
+export function getProvider(name: ProviderName): LlmProvider | null {
+  const prefix = name === 'default' ? 'LLM_' : 'LARGE_LLM_';
+  const baseUrl = process.env[`${prefix}BASE_URL`];
+  const model = process.env[`${prefix}MODEL`];
+  if (!baseUrl || !model) return null;
+  return {
+    name,
+    baseUrl: baseUrl.replace(/\/$/, ''),
+    apiKey: process.env[`${prefix}API_KEY`],
+    model,
+    reasoningEffort: process.env[`${prefix}REASONING_EFFORT`] || undefined,
+  };
+}
+
+/** The default provider must exist; the app can't work without it. */
+export function defaultProvider(): LlmProvider {
+  const provider = getProvider('default');
+  if (!provider) {
+    throw new Error('LLM_BASE_URL and LLM_MODEL must be set. Copy server/.env.example to server/.env');
+  }
+  return provider;
+}
+
 interface ChatOptions {
+  /** Which provider to call. Defaults to the default provider. */
+  provider?: LlmProvider;
   temperature?: number;
+  /** How many times to retry after a 429 (rate limited) or 503 (overloaded) before giving up. */
+  maxRetries?: number;
   /** Called before waiting out a rate limit, so the caller can tell the user. */
   onRateLimit?: (waitMs: number) => void;
 }
 
 // Only the parts of the provider's response we actually use.
 interface ChatCompletionResponse {
-  choices: { message: { content: string | null } }[];
+  // Normally a string, but some providers (Gemini) occasionally return an array of parts.
+  choices: { message: { content: string | { text?: string }[] | null }; finish_reason?: string }[];
   usage?: Record<string, unknown>;
 }
 
 interface ModelsResponse {
   data: { id: string }[];
-}
-
-interface LlmConfig {
-  baseUrl: string;
-  apiKey: string | undefined;
-  model: string;
-}
-
-function config(): LlmConfig {
-  const { LLM_BASE_URL, LLM_API_KEY, LLM_MODEL } = process.env;
-  if (!LLM_BASE_URL || !LLM_MODEL) {
-    throw new Error('LLM_BASE_URL and LLM_MODEL must be set. Copy server/.env.example to server/.env');
-  }
-  return { baseUrl: LLM_BASE_URL.replace(/\/$/, ''), apiKey: LLM_API_KEY, model: LLM_MODEL };
 }
 
 function headers(apiKey: string | undefined): Record<string, string> {
@@ -46,7 +84,6 @@ function headers(apiKey: string | undefined): Record<string, string> {
   };
 }
 
-const MAX_RETRIES = 5;
 const MAX_WAIT_MS = 30_000;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -61,25 +98,34 @@ function retryDelayMs(res: Response, attempt: number): number {
   return Math.min(ms + 250, MAX_WAIT_MS); // small buffer so we don't arrive a moment too early
 }
 
-/** Send a conversation to the model and get its reply as a string. Retries on 429. */
+// 429 = rate limited (free tiers allow only so many tokens per minute),
+// 503 = the model is overloaded ("high demand"). Both are usually temporary.
+const RETRYABLE_STATUSES = [429, 503];
+
+/** Send a conversation to a model and get its reply as a string. Retries on 429/503. */
 export async function chat(
   messages: ChatMessage[],
-  { temperature = 0.3, onRateLimit }: ChatOptions = {},
+  { provider = defaultProvider(), temperature = 0.3, maxRetries = 5, onRateLimit }: ChatOptions = {},
 ): Promise<string> {
-  const { baseUrl, apiKey, model } = config();
+  const { baseUrl, apiKey, model, reasoningEffort } = provider;
 
   let res: Response;
   for (let attempt = 0; ; attempt++) {
     res = await fetch(`${baseUrl}/chat/completions`, {
       method: 'POST',
       headers: headers(apiKey),
-      body: JSON.stringify({ model, messages, temperature }),
+      body: JSON.stringify({
+        model,
+        messages,
+        temperature,
+        ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
+      }),
     });
 
-    // Rate limited (free tiers allow only so many tokens per minute): wait and try again.
-    if (res.status === 429 && attempt < MAX_RETRIES) {
+    // Temporary problem: wait and try again.
+    if (RETRYABLE_STATUSES.includes(res.status) && attempt < maxRetries) {
       const wait = retryDelayMs(res, attempt);
-      console.log(`[llm] rate limited, retrying in ${wait}ms (attempt ${attempt + 1}/${MAX_RETRIES})`);
+      console.log(`[llm:${provider.name}] ${res.status}, retrying in ${wait}ms (attempt ${attempt + 1}/${maxRetries})`);
       onRateLimit?.(wait);
       await res.text(); // drain the body so the connection can be reused
       await sleep(wait);
@@ -92,25 +138,31 @@ export async function chat(
     if (res.status === 429) {
       throw new Error('The AI provider is rate-limiting us (free tier). Wait a minute and try again.');
     }
-    throw new Error(`LLM request failed (${res.status}): ${await res.text()}`);
+    throw new Error(`LLM request to ${model} failed (${res.status}): ${await res.text()}`);
   }
 
   // res.json() returns `any`; we tell TypeScript what shape we expect.
   // (It's a promise, not a runtime check. A schema library like zod would validate it.)
   const data = (await res.json()) as ChatCompletionResponse;
   // data.usage shows how many tokens you spent. Worth watching while learning.
-  if (data.usage) console.log('[llm] tokens:', data.usage);
-  return data.choices[0]?.message.content ?? '';
+  if (data.usage) console.log(`[llm:${provider.name}] ${model} tokens:`, data.usage);
+
+  const choice = data.choices[0];
+  const content = choice?.message.content;
+  const text = (Array.isArray(content) ? content.map((part) => part.text ?? '').join('') : (content ?? '')).trim();
+
+  // An empty answer is a failure, not a result. Typical cause: finish_reason "length",
+  // meaning a reasoning model used its whole output budget thinking. Throwing lets the
+  // caller fall back to another model instead of showing a blank summary.
+  if (!text) {
+    throw new Error(`${model} returned an empty answer (finish_reason: ${choice?.finish_reason ?? 'unknown'}). Please try again.`);
+  }
+  return text;
 }
 
-export async function listModels(): Promise<string[]> {
-  const { baseUrl, apiKey } = config();
-  const res = await fetch(`${baseUrl}/models`, { headers: headers(apiKey) });
+export async function listModels(provider: LlmProvider = defaultProvider()): Promise<string[]> {
+  const res = await fetch(`${provider.baseUrl}/models`, { headers: headers(provider.apiKey) });
   if (!res.ok) throw new Error(`Listing models failed (${res.status}): ${await res.text()}`);
   const data = (await res.json()) as ModelsResponse;
   return data.data.map((m) => m.id);
-}
-
-export function currentModel(): string {
-  return config().model;
 }

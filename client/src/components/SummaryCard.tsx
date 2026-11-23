@@ -22,6 +22,8 @@ export default function SummaryCard({ result }: SummaryCardProps) {
     `${(stats.ms / 1000).toFixed(1)}s`,
     `~${stats.approxTokens.toLocaleString()} tokens`,
     `${stats.chunks} chunk${stats.chunks === 1 ? '' : 's'}`,
+    // Actual summary length vs. the budget it was given (see server/src/summarize.ts).
+    `${result.summary.split(/\s+/).filter(Boolean).length} / ~${stats.targetWords} words`,
   ];
 
   return (

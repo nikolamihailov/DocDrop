@@ -13,6 +13,8 @@ export interface SummaryStats {
   chunks: number;
   model: string;
   ms: number;
+  /** Word budget the summary was asked for (scales with the document). */
+  targetWords: number;
 }
 
 export interface SummarizeResponse {
@@ -24,8 +26,9 @@ export interface SummarizeResponse {
 /** What the server is doing right now, streamed to the client while it works. */
 export type ProgressStage =
   | { stage: 'extracting' }
-  | { stage: 'summarizing'; part: number; total: number }
+  | { stage: 'summarizing'; part: number; total: number; model: string }
   | { stage: 'combining' }
+  | { stage: 'fallback'; model: string } // the long-document model failed, using this one instead
   | { stage: 'waiting'; seconds: number }; // rate-limited by the LLM provider
 
 /**
@@ -40,6 +43,8 @@ export type SummarizeEvent =
 export interface HealthResponse {
   ok: boolean;
   model: string | null;
+  /** Model used for long documents, if one is configured. */
+  largeModel: string | null;
 }
 
 export interface ErrorResponse {

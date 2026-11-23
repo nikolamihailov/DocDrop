@@ -1,7 +1,7 @@
 import express, { type ErrorRequestHandler } from 'express';
 import { extractTextFromFile, UserError } from './extract.js';
 import { summarizeDocument } from './summarize.js';
-import { currentModel } from './llm.js';
+import { getProvider } from './llm.js';
 import type {
   ErrorResponse,
   HealthResponse,
@@ -24,7 +24,11 @@ const MAX_FILE_BYTES = 3 * 1024 * 1024;
 app.use(express.json({ limit: '5mb' }));
 
 app.get('/api/health', (_req, res) => {
-  const body: HealthResponse = { ok: true, model: process.env.LLM_MODEL ?? null };
+  const body: HealthResponse = {
+    ok: true,
+    model: getProvider('default')?.model ?? null,
+    largeModel: getProvider('large')?.model ?? null,
+  };
   res.json(body);
 });
 
@@ -59,7 +63,7 @@ app.post('/api/summarize', async (req, res) => {
     const started = Date.now();
     send({ type: 'progress', stage: 'extracting' });
     const text = await extractTextFromFile({ originalname: fileName, buffer });
-    const { summary, chunks } = await summarizeDocument(text, (progress) => send({ type: 'progress', ...progress }));
+    const { summary, chunks, model, targetWords } = await summarizeDocument(text, (progress) => send({ type: 'progress', ...progress }));
 
     const result: SummarizeResponse = {
       fileName,
@@ -68,7 +72,8 @@ app.post('/api/summarize', async (req, res) => {
         characters: text.length,
         approxTokens: Math.round(text.length / 4),
         chunks,
-        model: currentModel(),
+        model,
+        targetWords,
         ms: Date.now() - started,
       },
     };

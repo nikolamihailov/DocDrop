@@ -7,6 +7,11 @@ interface ProgressCardProps {
   progress: ProgressStage | null;
 }
 
+/** "openai/gpt-oss-20b" -> "gpt-oss-20b", "models/gemini-x" -> "gemini-x" */
+export function shortModel(model: string): string {
+  return model.split('/').pop() ?? model;
+}
+
 function describe(progress: ProgressStage | null): { label: string; percent: number | null } {
   if (!progress) return { label: 'Uploading…', percent: 3 };
   switch (progress.stage) {
@@ -14,16 +19,18 @@ function describe(progress: ProgressStage | null): { label: string; percent: num
       return { label: 'Reading the document…', percent: 8 };
     case 'summarizing':
       return progress.total === 1
-        ? { label: 'Summarizing…', percent: 40 }
+        ? { label: `Summarizing with ${shortModel(progress.model)}…`, percent: 40 }
         : {
             label: `Summarizing part ${progress.part} of ${progress.total}…`,
             percent: 10 + (80 * (progress.part - 1)) / progress.total,
           };
     case 'combining':
       return { label: 'Combining the parts into one summary…', percent: 92 };
+    case 'fallback':
+      return { label: `Long-document model unavailable, switching to ${shortModel(progress.model)}…`, percent: 10 };
     case 'waiting':
       // Keep the bar where it was; only the label changes.
-      return { label: `Free-tier rate limit reached, waiting ${progress.seconds}s…`, percent: null };
+      return { label: `AI provider is busy (free tier), retrying in ${progress.seconds}s…`, percent: null };
   }
 }
 

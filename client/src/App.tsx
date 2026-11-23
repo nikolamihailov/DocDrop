@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { CircleAlert, FileText, LoaderCircle, Sparkles } from 'lucide-react';
 import Dropzone, { ACCEPTED_EXTENSIONS, MAX_FILE_BYTES } from './components/Dropzone';
 import SummaryCard, { SummarySkeleton } from './components/SummaryCard';
-import ProgressCard from './components/ProgressCard';
+import ProgressCard, { shortModel } from './components/ProgressCard';
 import { getHealth, summarizeFile } from './api';
 import type { ProgressStage, SummarizeResponse } from './types';
 
@@ -24,7 +24,10 @@ export default function App() {
 
   useEffect(() => {
     getHealth()
-      .then((h) => setBackend(h.model ?? 'no model set'))
+      .then((h) => {
+        const models = [h.model, h.largeModel].filter((m): m is string => !!m).map(shortModel);
+        setBackend(models.length ? models.join(' + ') : 'no model set');
+      })
       .catch(() => setBackend(false));
   }, []);
 
@@ -63,8 +66,8 @@ export default function App() {
       />
 
       <div className="relative mx-auto max-w-2xl px-4 pt-8 pb-20 sm:px-6">
-        <nav className="flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
+        <nav className="flex items-center justify-between gap-4">
+          <div className="flex shrink-0 items-center gap-2.5">
             <div className="grid size-9 place-items-center rounded-xl bg-gradient-to-br from-brand-500 to-orange-600 text-white shadow-lg shadow-brand-500/30">
               <FileText className="size-5" />
             </div>
@@ -127,9 +130,11 @@ function BackendBadge({ backend }: { backend: Backend }) {
         : ['bg-emerald-500', backend];
 
   return (
-    <span className="flex items-center gap-2 rounded-full border border-zinc-200 bg-white/70 px-3 py-1 text-xs font-medium text-zinc-600 backdrop-blur dark:border-white/10 dark:bg-white/5 dark:text-zinc-300">
-      <span className={`size-2 rounded-full ${dot}`} />
-      {label}
+    <span className="flex min-w-0 items-center gap-2 rounded-full border border-zinc-200 bg-white/70 px-3 py-1 text-xs font-medium text-zinc-600 backdrop-blur dark:border-white/10 dark:bg-white/5 dark:text-zinc-300">
+      <span className={`size-2 shrink-0 rounded-full ${dot}`} />
+      <span className="truncate" title={label}>
+        {label}
+      </span>
     </span>
   );
 }
