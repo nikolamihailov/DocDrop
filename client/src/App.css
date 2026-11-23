@@ -1,6 +1,9 @@
 :root {
-  font-family: system-ui, sans-serif;
+  font-family: 'Inter', system-ui, sans-serif;
   color-scheme: light dark;
+  --accent: #4f7cff;
+  --card: rgba(127, 127, 127, 0.08);
+  --border: rgba(127, 127, 127, 0.25);
 }
 
 body {
@@ -51,9 +54,59 @@ button:disabled {
   color: #e5484d;
 }
 
+.result {
+  margin-top: 2rem;
+  padding: 1.5rem 1.75rem;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+
+.file-label {
+  margin: 0 0 0.5rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--accent);
+}
+
 .summary {
-  white-space: pre-wrap; /* LLM output uses newlines and "-" bullets; keep them visible */
-  line-height: 1.5;
+  font-size: 1.05rem;
+  line-height: 1.65;
+}
+
+.summary h2 {
+  font-size: 1.3rem;
+  font-weight: 700;
+  margin: 1.5rem 0 0.5rem;
+  padding-bottom: 0.3rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.summary h2:first-child {
+  margin-top: 0.25rem;
+}
+
+.summary p {
+  margin: 0.5rem 0;
+}
+
+.summary ul {
+  margin: 0.5rem 0;
+  padding-left: 1.3rem;
+}
+
+.summary li {
+  margin: 0.35rem 0;
+}
+
+.summary li::marker {
+  color: var(--accent);
+}
+
+.summary strong {
+  font-weight: 600;
 }
 
 .stats {

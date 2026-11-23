@@ -9,11 +9,22 @@ const SYSTEM_PROMPT =
   'Be accurate and only use information present in the provided text. ' +
   'Write in the same language as the document.';
 
-const FINAL_INSTRUCTIONS =
-  'Write a summary with:\n' +
-  '1. A one-paragraph overview.\n' +
-  '2. The key points as a bulleted list.\n' +
-  '3. Any important names, dates, or numbers.';
+// Be explicit about length and format: models follow concrete limits much better than "be brief".
+const FINAL_INSTRUCTIONS = `Write a SHORT summary in Markdown, at most 150 words in total.
+Use exactly this structure:
+
+## Overview
+2–3 sentences saying what the document is and its main purpose or conclusion.
+
+## Key points
+3–5 bullet points, one short line each, only the most important ideas.
+
+## Details worth noting
+Only if the document has critical names, dates, or numbers: up to 3 bullets. Otherwise omit this section.
+
+Rules:
+- Summarize and prioritize; do NOT list every fact from the document.
+- No introduction or closing remarks, just the summary.`;
 
 export async function summarizeDocument(text) {
   const chunkSize = Number(process.env.CHUNK_SIZE) || 12000;

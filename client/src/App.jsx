@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import Markdown from 'react-markdown';
 
 const ACCEPT = '.pdf,.docx,.txt,.md';
 
@@ -70,8 +71,11 @@ export default function App() {
 
       {result && (
         <section className="result">
-          <h2>Summary</h2>
-          <div className="summary">{result.summary}</div>
+          <p className="file-label">Summary of {result.fileName}</p>
+          {/* The model replies in Markdown; react-markdown turns it into real headings and lists. */}
+          <div className="summary">
+            <Markdown>{result.summary}</Markdown>
+          </div>
           <p className="muted stats">
             {result.stats.characters.toLocaleString()} chars (~{result.stats.approxTokens.toLocaleString()} tokens) ·{' '}
             {result.stats.chunks} chunk(s) · {result.stats.model} · {(result.stats.ms / 1000).toFixed(1)}s
