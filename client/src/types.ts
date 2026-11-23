@@ -1,5 +1,11 @@
 // Copy of server/src/types.ts: keep the two in sync when you change the API.
 
+/** Body of POST /api/summarize. `data` is the file's bytes, base64-encoded. */
+export interface SummarizeRequest {
+  fileName: string;
+  data: string;
+}
+
 export interface SummaryStats {
   characters: number;
   approxTokens: number;

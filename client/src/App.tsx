@@ -33,7 +33,7 @@ export default function App() {
       return;
     }
     if (next && next.size > MAX_FILE_BYTES) {
-      setState({ status: 'error', message: 'File is too large. The maximum size is 4 MB.' });
+      setState({ status: 'error', message: 'File is too large. The maximum size is 3 MB.' });
       return;
     }
     setFile(next);

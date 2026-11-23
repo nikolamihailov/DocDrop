@@ -36,7 +36,7 @@ Other scripts (both folders): `npm run typecheck` checks types without running a
 ```
 Browser (React)                     Express server                          LLM provider
 ───────────────                     ──────────────                          ────────────
-pick file ──FormData POST /api/summarize──▶ multer: file bytes in memory
+pick file ──JSON { fileName, base64 } POST /api/summarize──▶ decode to bytes in memory
                                      │
                                      ▼  extract.ts   PDF/DOCX ─▶ plain text
                                      ▼  chunk.ts     text ─▶ chunks of ~12k chars
@@ -53,7 +53,7 @@ pick file ──FormData POST /api/summarize──▶ multer: file bytes in memo
 | [server/src/summarize.ts](server/src/summarize.ts) | Prompting, plus the **map-reduce** pattern for documents bigger than one call. |
 | [server/src/index.ts](server/src/index.ts) | The Express routes that wire the pipeline together. |
 | [server/src/types.ts](server/src/types.ts) | The API's response shapes (copied to `client/src/types.ts`; keep them in sync). |
-| [client/src/api.ts](client/src/api.ts) | Calling the backend: uploading a file with `FormData`. |
+| [client/src/api.ts](client/src/api.ts) | Calling the backend: the file is sent as base64 inside JSON (see the comment there for why). |
 | [client/src/App.tsx](client/src/App.tsx) | Page layout and request state (a TypeScript discriminated union). |
 | [client/src/components/](client/src/components/) | `Dropzone` (file picking) and `SummaryCard` (renders the Markdown summary). |
 | [client/vite.config.ts](client/vite.config.ts) | Dev proxy: `/api` goes to Express, so you need no CORS setup. |
@@ -92,5 +92,5 @@ RAG (Retrieval-Augmented Generation) = instead of sending the *whole* document, 
 ## Limitations (on purpose)
 
 - Old `.doc` files and scanned PDFs (images) are not supported. Those would need conversion or OCR.
-- Upload limit is 4 MB (Vercel caps request bodies at 4.5 MB). Nothing is persisted.
+- Upload limit is 3 MB: files are sent base64-encoded (~4/3 bigger) and Vercel caps request bodies at 4.5 MB. Raw binary uploads over ~1 MB are rejected by Vercel Services with 503, which is why we use base64. Nothing is persisted.
 - No auth, no streaming, no tests: kept minimal so every line is easy to read.

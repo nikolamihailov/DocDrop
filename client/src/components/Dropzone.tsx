@@ -2,8 +2,8 @@ import { useState, type DragEvent } from 'react';
 import { CloudUpload, FileText, X } from 'lucide-react';
 
 export const ACCEPTED_EXTENSIONS = ['.pdf', '.docx', '.txt', '.md'];
-// Must match the server's multer limit (Vercel rejects bodies over 4.5 MB anyway).
-export const MAX_FILE_BYTES = 4 * 1024 * 1024;
+// Must match MAX_FILE_BYTES in server/src/index.ts (base64 + Vercel's 4.5 MB body cap).
+export const MAX_FILE_BYTES = 3 * 1024 * 1024;
 
 interface DropzoneProps {
   file: File | null;
@@ -78,7 +78,7 @@ export default function Dropzone({ file, onFileChange, disabled = false }: Dropz
         <p className="font-medium text-zinc-900 dark:text-white">
           Drop your document here or <span className="text-brand-600 dark:text-brand-400">browse</span>
         </p>
-        <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">PDF, DOCX, TXT or MD · up to 4 MB</p>
+        <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">PDF, DOCX, TXT or MD · up to 3 MB</p>
       </div>
     </label>
   );

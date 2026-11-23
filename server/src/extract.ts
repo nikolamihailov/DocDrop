@@ -9,7 +9,7 @@ export const SUPPORTED_EXTENSIONS = ['.pdf', '.docx', '.txt', '.md'];
 // Errors caused by the user's input (returned as HTTP 400 instead of 500).
 export class UserError extends Error {}
 
-// Just the fields we need, so this works with multer's file object or anything similar.
+// The uploaded file: its original name (for the extension) and its bytes.
 export interface UploadedFile {
   originalname: string;
   buffer: Buffer;
@@ -19,15 +19,23 @@ export async function extractTextFromFile(file: UploadedFile): Promise<string> {
   const ext = path.extname(file.originalname).toLowerCase();
   let text: string;
 
-  if (ext === '.pdf') {
-    const pdf = await getDocumentProxy(new Uint8Array(file.buffer));
-    ({ text } = await extractText(pdf, { mergePages: true }));
-  } else if (ext === '.docx') {
-    ({ value: text } = await mammoth.extractRawText({ buffer: file.buffer }));
-  } else if (ext === '.txt' || ext === '.md') {
-    text = file.buffer.toString('utf8');
-  } else {
+  if (!SUPPORTED_EXTENSIONS.includes(ext)) {
     throw new UserError(`Unsupported file type "${ext}". Supported: ${SUPPORTED_EXTENSIONS.join(', ')}`);
+  }
+
+  try {
+    if (ext === '.pdf') {
+      const pdf = await getDocumentProxy(new Uint8Array(file.buffer));
+      ({ text } = await extractText(pdf, { mergePages: true }));
+    } else if (ext === '.docx') {
+      ({ value: text } = await mammoth.extractRawText({ buffer: file.buffer }));
+    } else {
+      text = file.buffer.toString('utf8');
+    }
+  } catch (err) {
+    // A broken or password-protected file is the user's input, not a server bug.
+    console.warn('[extract] could not parse file:', err);
+    throw new UserError(`Could not read this ${ext.slice(1).toUpperCase()} file. It may be damaged or password-protected.`);
   }
 
   // Collapse noisy whitespace that PDF/DOCX parsers often produce.
