@@ -3,9 +3,10 @@
     "target": "ES2023",
     // NodeNext = follow Node's real module rules. That's why relative imports end in ".js":
     // they point at the compiled output file, even though the source file is ".ts".
-    // package.json has "type": "commonjs", so tsc outputs CommonJS (require/module.exports).
-    // We write `import` in the source, but the compiled JS works even without a
-    // package.json next to it, which is how Vercel runs it (/var/task/index.js).
+    // tsc only type-checks here (npm run build uses --noEmit). The runnable file is made
+    // by esbuild: it bundles our code AND all dependencies into one CommonJS file,
+    // dist/index.cjs, which runs with no node_modules or package.json next to it.
+    // That's what Vercel deploys (see vercel.json).
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "strict": true,

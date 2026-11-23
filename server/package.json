@@ -5,8 +5,8 @@
   "type": "commonjs",
   "scripts": {
     "dev": "tsx watch --env-file-if-exists=.env src/index.ts",
-    "build": "tsc",
-    "start": "node --env-file-if-exists=.env dist/index.js",
+    "build": "tsc --noEmit && esbuild src/index.ts --bundle --platform=node --target=node22 --format=cjs --outfile=dist/index.cjs",
+    "start": "node --env-file-if-exists=.env dist/index.cjs",
     "typecheck": "tsc --noEmit",
     "models": "tsx --env-file-if-exists=.env src/scripts/list-models.ts"
   },
@@ -20,6 +20,7 @@
     "@types/express": "^5.0.6",
     "@types/multer": "^2.3.0",
     "@types/node": "^26.6.6",
+    "esbuild": "^0.28.2",
     "tsx": "^4.23.15",
     "typescript": "~5.9.3"
   }
