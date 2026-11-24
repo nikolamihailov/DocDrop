@@ -84,18 +84,21 @@ function headers(apiKey: string | undefined): Record<string, string> {
   };
 }
 
-const MAX_WAIT_MS = 30_000;
+// If the provider asks us to wait longer than this, we don't: it's a daily limit
+// (Groq's free tier also caps tokens PER DAY, then asks for waits of ~20 minutes+),
+// and failing fast lets the caller switch to the other provider instead.
+const MAX_WAIT_MS = 60_000;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
- * How long the provider wants us to wait after a 429 ("too many requests").
+ * How long the provider wants us to wait after a 429/503.
  * Groq/OpenAI send a `retry-after` header in seconds; we fall back to exponential backoff.
  */
 function retryDelayMs(res: Response, attempt: number): number {
   const header = Number(res.headers.get('retry-after'));
   const ms = header > 0 ? header * 1000 : 2 ** attempt * 1000;
-  return Math.min(ms + 250, MAX_WAIT_MS); // small buffer so we don't arrive a moment too early
+  return ms + 250; // small buffer so we don't arrive a moment too early
 }
 
 // 429 = rate limited (free tiers allow only so many tokens per minute),
@@ -122,9 +125,15 @@ export async function chat(
       }),
     });
 
-    // Temporary problem: wait and try again.
+    // Temporary problem: wait and try again, unless the wait is unreasonably long.
     if (RETRYABLE_STATUSES.includes(res.status) && attempt < maxRetries) {
       const wait = retryDelayMs(res, attempt);
+      if (wait > MAX_WAIT_MS) {
+        const minutes = Math.ceil(wait / 60_000);
+        console.log(`[llm:${provider.name}] ${res.status}, provider asks to wait ~${minutes} min: giving up`);
+        await res.text();
+        throw new Error(`${model}: free-tier limit reached for now (available again in ~${minutes} min).`);
+      }
       console.log(`[llm:${provider.name}] ${res.status}, retrying in ${wait}ms (attempt ${attempt + 1}/${maxRetries})`);
       onRateLimit?.(wait);
       await res.text(); // drain the body so the connection can be reused
@@ -136,7 +145,10 @@ export async function chat(
 
   if (!res.ok) {
     if (res.status === 429) {
-      throw new Error('The AI provider is rate-limiting us (free tier). Wait a minute and try again.');
+      throw new Error(`${model}: free-tier rate limit reached. Wait a minute and try again.`);
+    }
+    if (res.status === 503) {
+      throw new Error(`${model} is overloaded right now. Please try again in a moment.`);
     }
     throw new Error(`LLM request to ${model} failed (${res.status}): ${await res.text()}`);
   }

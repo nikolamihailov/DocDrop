@@ -17,19 +17,22 @@ const SYSTEM_PROMPT =
   'Write in the same language as the document.';
 
 // --- How long should the summary be? -------------------------------------------
-// It scales with the document, but sub-linearly: 4 × √(document words), clamped.
-//   40 words → 25 (min) · 500 → ~90 · 2,500 → ~200 · 10,000+ → 400 (max)
+// It scales with the document, but sub-linearly: 6 × √(document words), clamped.
+//   40 words → 40 (min) · 500 (~1 page) → ~135 · 2,500 (~5 pages) → 300
+//   10,000 → 600 · 22,500+ (~65 pages) → 900 (max)
 // A square root grows fast for short documents and slowly for long ones, which
 // matches how much a reader wants: a 50-page report doesn't need a 50× longer summary.
-const MIN_SUMMARY_WORDS = 25;
-const MAX_SUMMARY_WORDS = 400;
+// Tune these three numbers to make summaries longer or shorter overall.
+const SUMMARY_LENGTH_FACTOR = 6;
+const MIN_SUMMARY_WORDS = 40;
+const MAX_SUMMARY_WORDS = 900;
 
 export function countWords(text: string): number {
   return text.split(/\s+/).filter(Boolean).length;
 }
 
 export function targetSummaryWords(documentWords: number): number {
-  const target = Math.round(4 * Math.sqrt(documentWords));
+  const target = Math.round(SUMMARY_LENGTH_FACTOR * Math.sqrt(documentWords));
   return Math.min(MAX_SUMMARY_WORDS, Math.max(MIN_SUMMARY_WORDS, target));
 }
 
@@ -37,14 +40,23 @@ export function targetSummaryWords(documentWords: number): number {
 // Models follow concrete numbers ("about 90 words", "up to 3 bullets") much better
 // than vague ones ("be brief"). Each section has its own job, so nothing is repeated.
 function finalInstructions(target: number): string {
+  const range = `between ${Math.round(target * 0.9)} and ${Math.round(target * 1.1)} words`;
+
   // Very short documents: a heading structure would be longer than the content.
-  if (target < 60) {
-    return `Write a summary of about ${target} words as a single short paragraph. No headings, no bullet points.`;
+  if (target < 70) {
+    return `Write a summary as a single paragraph of ${range}. No headings, no bullet points.`;
   }
 
-  const maxPoints = Math.min(8, Math.max(2, Math.round(target / 45)));
-  const overviewSentences = target < 150 ? '1–2' : '2–4';
-  return `Write a summary in Markdown of about ${target} words (between ${Math.round(target * 0.8)} and ${Math.round(target * 1.2)}).
+  const overviewSentences = target < 200 ? '2–3' : '3–5';
+
+  // Long summaries: group the key points by the document's own sections or themes,
+  // so 900 words stay easy to scan instead of becoming one endless list.
+  const keyPoints =
+    target >= 350
+      ? `Group the key points under ### subheadings that follow the document's own main sections or themes (typically ${Math.round(target / 150)}–${Math.round(target / 100)} groups). Under each subheading, write bullet points.`
+      : `Write about ${Math.max(3, Math.round(target / 35))} bullet points.`;
+
+  return `Write a summary in Markdown of ${range}. Models tend to write too little: use the full budget, filling it with substance from the document, not with filler.
 
 Use this structure:
 
@@ -52,14 +64,14 @@ Use this structure:
 ${overviewSentences} sentences: what the document is, its purpose, and its main conclusion or outcome.
 
 ## Key points
-Up to ${maxPoints} bullet points. Each bullet is one distinct idea, finding, decision or condition, with its important specifics (names, dates, amounts) written inline. Put the single most important phrase of each bullet in **bold**.
+${keyPoints} Each bullet is one distinct idea, finding, example, decision or condition, with its important specifics (names, dates, numbers, definitions) written inline. Put the single most important phrase of each bullet in **bold**.
 
 ## Action items
 ONLY if the document asks the reader to do something or sets deadlines: list those actions with their dates. If it doesn't, leave this section out completely.
 
 Rules:
+- Cover the whole document, from beginning to end, in proportion to how much space each part takes in it.
 - Every fact appears exactly once in the whole summary. Bullets must not repeat the Overview, and Action items must not repeat Key points.
-- Prioritize: leave out minor details rather than going over the word budget.
 - No introduction or closing remarks, just the summary.`;
 }
 
@@ -84,19 +96,39 @@ export async function summarizeDocument(text: string, onProgress: OnProgress = (
   const instructions = finalInstructions(targetWords);
   console.log(`[summarize] ${countWords(text)} words -> target ~${targetWords} words`);
 
-  // Long document + a large-context model available: try it first, in a single call.
-  if (text.length > chunkSize && large) {
-    const largeChunkSize = Number(process.env.LARGE_CHUNK_SIZE) || 400_000; // ~100k tokens
+  // Each model with its own request size and patience. Few retries for Gemini: when it's
+  // overloaded, switching to Groq beats waiting.
+  const primaryAttempt = { provider: primary, chunkSize, maxRetries: 5 };
+  const largeAttempt = large && {
+    provider: large,
+    chunkSize: Number(process.env.LARGE_CHUNK_SIZE) || 400_000, // ~100k tokens: one call
+    maxRetries: 2,
+  };
+
+  // Preferred model first, the other one as a backup (in both directions: Groq also has
+  // a DAILY token limit, and then Gemini can take over the short documents too).
+  const isLong = text.length > chunkSize;
+  const attempts = !largeAttempt ? [primaryAttempt] : isLong ? [largeAttempt, primaryAttempt] : [primaryAttempt, largeAttempt];
+
+  for (const [i, attempt] of attempts.entries()) {
     try {
-      // Few retries: if Gemini is out of quota, falling back beats waiting.
-      return await summarizeWith(large, text, largeChunkSize, instructions, targetWords, onProgress, 2);
+      return await summarizeWith(
+        attempt.provider,
+        text,
+        attempt.chunkSize,
+        instructions,
+        targetWords,
+        onProgress,
+        attempt.maxRetries,
+      );
     } catch (err) {
-      console.warn(`[summarize] ${large.model} failed, falling back to ${primary.model}:`, err);
-      onProgress({ stage: 'fallback', model: primary.model });
+      const next = attempts[i + 1];
+      if (!next) throw err;
+      console.warn(`[summarize] ${attempt.provider.model} failed, falling back to ${next.provider.model}:`, err);
+      onProgress({ stage: 'fallback', model: next.provider.model });
     }
   }
-
-  return summarizeWith(primary, text, chunkSize, instructions, targetWords, onProgress, 5);
+  throw new Error('unreachable');
 }
 
 async function summarizeWith(
@@ -134,6 +166,9 @@ async function summarizeWith(
   }
 
   // MAP: one call per chunk. Sequential (not Promise.all) to stay under free-tier rate limits.
+  // Each part's notes get a share of the final budget (×2, since the final step condenses
+  // them again): with "a few bullets" per part, detail was lost before the final summary.
+  const partWords = Math.min(300, Math.max(80, Math.round((2 * targetWords) / chunks.length)));
   const partials: string[] = [];
   for (const [i, chunk] of chunks.entries()) {
     console.log(`[summarize] ${provider.model} chunk ${i + 1}/${chunks.length}`);
@@ -145,7 +180,8 @@ async function summarizeWith(
           role: 'user',
           content:
             `This is part ${i + 1} of ${chunks.length} of a longer document. ` +
-            `Summarize this part in a few concise bullet points.\n\n<part>\n${chunk}\n</part>`,
+            `Summarize this part as bullet points in about ${partWords} words, keeping its concrete ` +
+            `specifics (names, numbers, examples, definitions).\n\n<part>\n${chunk}\n</part>`,
         },
       ]),
     );

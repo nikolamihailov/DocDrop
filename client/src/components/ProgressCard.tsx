@@ -27,7 +27,7 @@ function describe(progress: ProgressStage | null): { label: string; percent: num
     case 'combining':
       return { label: 'Combining the parts into one summary…', percent: 92 };
     case 'fallback':
-      return { label: `Long-document model unavailable, switching to ${shortModel(progress.model)}…`, percent: 10 };
+      return { label: `First model unavailable, switching to ${shortModel(progress.model)}…`, percent: 10 };
     case 'waiting':
       // Keep the bar where it was; only the label changes.
       return { label: `AI provider is busy (free tier), retrying in ${progress.seconds}s…`, percent: null };
