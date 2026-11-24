@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { CircleAlert, FileText, LoaderCircle, Sparkles } from 'lucide-react';
+import { CircleAlert, FileText, Sparkles } from 'lucide-react';
 import Dropzone, { ACCEPTED_EXTENSIONS, MAX_FILE_BYTES } from './components/Dropzone';
 import SummaryCard, { SummarySkeleton } from './components/SummaryCard';
 import ProgressCard, { shortModel } from './components/ProgressCard';
@@ -95,7 +95,8 @@ export default function App() {
             disabled={!file || loading}
             className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand-600 px-5 py-3 font-medium text-white shadow-lg shadow-brand-600/25 transition hover:bg-brand-500 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none"
           >
-            {loading ? <LoaderCircle className="size-5 animate-spin" /> : <Sparkles className="size-5" />}
+            {/* No spinner here: while loading, the progress card below shows what's happening. */}
+            <Sparkles className="size-5" />
             {loading ? 'Summarizing…' : 'Summarize'}
           </button>
 
