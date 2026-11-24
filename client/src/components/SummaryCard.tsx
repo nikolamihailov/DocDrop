@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import Markdown from 'react-markdown';
-import { Check, Copy } from 'lucide-react';
+import { Check, Copy, Search } from 'lucide-react';
 import type { SummarizeResponse } from '../types';
 
 interface SummaryCardProps {
@@ -57,6 +57,20 @@ export default function SummaryCard({ result }: SummaryCardProps) {
             {pill}
           </span>
         ))}
+        {/* RAG status: was the document indexed for questions? (see server/src/rag.ts) */}
+        {result.index ? (
+          <span className="flex items-center gap-1 rounded-full bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-700 dark:text-emerald-300">
+            <Search className="size-3" />
+            {result.index.chunks.length} passages indexed for Q&A
+          </span>
+        ) : (
+          <span
+            title={result.indexError ?? undefined}
+            className="rounded-full bg-amber-500/10 px-2.5 py-1 text-xs font-medium text-amber-700 dark:text-amber-300"
+          >
+            Q&A unavailable
+          </span>
+        )}
       </footer>
     </section>
   );

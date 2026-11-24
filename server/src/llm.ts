@@ -93,69 +93,98 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
  * How long the provider wants us to wait after a 429/503.
- * Groq/OpenAI send a `retry-after` header in seconds; we fall back to exponential backoff.
+ * Groq/OpenAI send a `retry-after` header (seconds); Gemini puts `"retryDelay": "45s"`
+ * in the JSON body instead. Without either, we use exponential backoff: 1s, 2s, 4s…
  */
-function retryDelayMs(res: Response, attempt: number): number {
+function retryDelayMs(res: Response, body: string, attempt: number): number {
   const header = Number(res.headers.get('retry-after'));
-  const ms = header > 0 ? header * 1000 : 2 ** attempt * 1000;
-  return ms + 250; // small buffer so we don't arrive a moment too early
+  const fromBody = Number(body.match(/"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"/)?.[1]);
+  const seconds = header > 0 ? header : fromBody > 0 ? fromBody : 2 ** attempt;
+  return seconds * 1000 + 250; // small buffer so we don't arrive a moment too early
 }
 
 // 429 = rate limited (free tiers allow only so many tokens per minute),
 // 503 = the model is overloaded ("high demand"). Both are usually temporary.
 const RETRYABLE_STATUSES = [429, 503];
 
+export interface RequestOptions {
+  /** How many times to retry after a 429 (rate limited) or 503 (overloaded) before giving up. */
+  maxRetries?: number;
+  /** Called before waiting out a rate limit, so the caller can tell the user. */
+  onRateLimit?: (waitMs: number) => void;
+}
+
+/**
+ * POST a JSON body to an OpenAI-compatible endpoint (`/chat/completions`, `/embeddings`…)
+ * and return the parsed JSON response. Handles rate limits: waits and retries on 429/503,
+ * but gives up immediately if the provider asks for an unreasonably long wait.
+ */
+export async function postJson<T>(
+  provider: Pick<LlmProvider, 'name' | 'baseUrl' | 'apiKey'>,
+  path: string,
+  model: string,
+  body: Record<string, unknown>,
+  options: RequestOptions = {},
+): Promise<T> {
+  const res = await postWithRetry(provider, path, model, body, options);
+  // res.json() returns `any`; the caller tells TypeScript what shape it expects.
+  // (That's a promise, not a runtime check. A schema library like zod would validate it.)
+  return (await res.json()) as T;
+}
+
+/** The retry loop shared by normal and streaming requests. Returns the successful response. */
+async function postWithRetry(
+  provider: Pick<LlmProvider, 'name' | 'baseUrl' | 'apiKey'>,
+  path: string,
+  model: string,
+  body: Record<string, unknown>,
+  { maxRetries = 5, onRateLimit }: RequestOptions = {},
+): Promise<Response> {
+  for (let attempt = 0; ; attempt++) {
+    const res = await fetch(`${provider.baseUrl}${path}`, {
+      method: 'POST',
+      headers: headers(provider.apiKey),
+      body: JSON.stringify({ model, ...body }),
+    });
+    if (res.ok) return res;
+
+    const text = await res.text();
+    const retryable = RETRYABLE_STATUSES.includes(res.status);
+
+    // Temporary problem: wait and try again, unless the wait is unreasonably long.
+    if (retryable && attempt < maxRetries) {
+      const wait = retryDelayMs(res, text, attempt);
+      if (wait > MAX_WAIT_MS) {
+        const minutes = Math.ceil(wait / 60_000);
+        console.log(`[llm:${provider.name}] ${res.status}, provider asks to wait ~${minutes} min: giving up`);
+        throw new Error(`${model}: free-tier limit reached for now (available again in ~${minutes} min).`);
+      }
+      console.log(`[llm:${provider.name}] ${model} ${res.status}, retrying in ${wait}ms (attempt ${attempt + 1}/${maxRetries})`);
+      onRateLimit?.(wait);
+      await sleep(wait);
+      continue;
+    }
+
+    if (res.status === 429) throw new Error(`${model}: free-tier rate limit reached. Wait a minute and try again.`);
+    if (res.status === 503) throw new Error(`${model} is overloaded right now. Please try again in a moment.`);
+    throw new Error(`Request to ${model} failed (${res.status}): ${text}`);
+  }
+}
+
 /** Send a conversation to a model and get its reply as a string. Retries on 429/503. */
 export async function chat(
   messages: ChatMessage[],
   { provider = defaultProvider(), temperature = 0.3, maxRetries = 5, onRateLimit }: ChatOptions = {},
 ): Promise<string> {
-  const { baseUrl, apiKey, model, reasoningEffort } = provider;
+  const { model, reasoningEffort } = provider;
 
-  let res: Response;
-  for (let attempt = 0; ; attempt++) {
-    res = await fetch(`${baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: headers(apiKey),
-      body: JSON.stringify({
-        model,
-        messages,
-        temperature,
-        ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
-      }),
-    });
-
-    // Temporary problem: wait and try again, unless the wait is unreasonably long.
-    if (RETRYABLE_STATUSES.includes(res.status) && attempt < maxRetries) {
-      const wait = retryDelayMs(res, attempt);
-      if (wait > MAX_WAIT_MS) {
-        const minutes = Math.ceil(wait / 60_000);
-        console.log(`[llm:${provider.name}] ${res.status}, provider asks to wait ~${minutes} min: giving up`);
-        await res.text();
-        throw new Error(`${model}: free-tier limit reached for now (available again in ~${minutes} min).`);
-      }
-      console.log(`[llm:${provider.name}] ${res.status}, retrying in ${wait}ms (attempt ${attempt + 1}/${maxRetries})`);
-      onRateLimit?.(wait);
-      await res.text(); // drain the body so the connection can be reused
-      await sleep(wait);
-      continue;
-    }
-    break;
-  }
-
-  if (!res.ok) {
-    if (res.status === 429) {
-      throw new Error(`${model}: free-tier rate limit reached. Wait a minute and try again.`);
-    }
-    if (res.status === 503) {
-      throw new Error(`${model} is overloaded right now. Please try again in a moment.`);
-    }
-    throw new Error(`LLM request to ${model} failed (${res.status}): ${await res.text()}`);
-  }
-
-  // res.json() returns `any`; we tell TypeScript what shape we expect.
-  // (It's a promise, not a runtime check. A schema library like zod would validate it.)
-  const data = (await res.json()) as ChatCompletionResponse;
+  const data = await postJson<ChatCompletionResponse>(
+    provider,
+    '/chat/completions',
+    model,
+    { messages, temperature, ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}) },
+    { maxRetries, onRateLimit },
+  );
   // data.usage shows how many tokens you spent. Worth watching while learning.
   if (data.usage) console.log(`[llm:${provider.name}] ${model} tokens:`, data.usage);
 
@@ -170,6 +199,60 @@ export async function chat(
     throw new Error(`${model} returned an empty answer (finish_reason: ${choice?.finish_reason ?? 'unknown'}). Please try again.`);
   }
   return text;
+}
+
+/**
+ * Like chat(), but STREAMS the reply: `onToken` is called with each small piece of text as
+ * the model generates it, so the user sees the answer appear word by word.
+ *
+ * With `stream: true`, OpenAI-compatible APIs answer with Server-Sent Events (SSE):
+ *
+ *   data: {"choices":[{"delta":{"content":"The"}}]}
+ *   data: {"choices":[{"delta":{"content":" answer"}}]}
+ *   data: [DONE]
+ *
+ * Each event carries a "delta": just the NEW text since the previous event.
+ * Returns the full text once the stream ends.
+ */
+export async function chatStream(
+  messages: ChatMessage[],
+  onToken: (text: string) => void,
+  { provider = defaultProvider(), temperature = 0.3, maxRetries = 2 }: ChatOptions = {},
+): Promise<string> {
+  const { model, reasoningEffort } = provider;
+  const res = await postWithRetry(
+    provider,
+    '/chat/completions',
+    model,
+    { messages, temperature, stream: true, ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}) },
+    { maxRetries },
+  );
+  if (!res.body) throw new Error(`${model} returned no stream.`);
+
+  let full = '';
+  let buffer = '';
+  const decoder = new TextDecoder();
+  for await (const bytes of res.body) {
+    buffer += decoder.decode(bytes, { stream: true });
+    // SSE events are separated by newlines; a network chunk can end mid-event, so keep the rest.
+    const lines = buffer.split('\n');
+    buffer = lines.pop() ?? '';
+    for (const line of lines) {
+      if (!line.startsWith('data:')) continue; // skip blank lines and comments
+      const data = line.slice(5).trim();
+      if (data === '[DONE]') continue;
+      const event = JSON.parse(data) as { choices?: { delta?: { content?: string | null } }[] };
+      const token = event.choices?.[0]?.delta?.content;
+      if (token) {
+        full += token;
+        onToken(token);
+      }
+      // (Reasoning models also stream their "thinking" in a separate field: we ignore it.)
+    }
+  }
+
+  if (!full.trim()) throw new Error(`${model} returned an empty answer. Please try again.`);
+  return full;
 }
 
 export async function listModels(provider: LlmProvider = defaultProvider()): Promise<string[]> {

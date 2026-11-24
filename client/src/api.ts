@@ -1,5 +1,11 @@
 // All calls to our Express backend live here, so components never deal with fetch details.
 import type {
+  AskEvent,
+  AskPassage,
+  AskRequest,
+  ChatTurn,
+  EmbedQueryRequest,
+  EmbedQueryResponse,
   ErrorResponse,
   HealthResponse,
   ProgressStage,
@@ -65,10 +71,31 @@ export async function summarizeFile(
     body: JSON.stringify(body),
   });
 
+  let result: SummarizeResponse | null = null;
+  await readNdjson<SummarizeEvent>(res, (event) => {
+    if (event.type === 'progress') {
+      const { type: _type, ...progress } = event;
+      onProgress(progress);
+    } else if (event.type === 'result') {
+      result = event.result;
+    } else {
+      throw new Error(event.error);
+    }
+  });
+  if (!result) throw new Error('The connection closed before the summary was ready. Please try again.');
+  return result;
+}
+
+/**
+ * Read a streamed NDJSON response (one JSON event per line), calling `onEvent` for each
+ * event as it arrives. Used by both /api/summarize and /api/ask.
+ */
+async function readNdjson<Event>(res: Response, onEvent: (event: Event) => void): Promise<void> {
   // Errors found before streaming starts (bad request, file too large…) come back
   // as a normal JSON error, so let readJson turn them into an Error.
   if (!res.ok || !res.headers.get('content-type')?.includes('ndjson') || !res.body) {
-    return readJson<SummarizeResponse>(res);
+    await readJson<unknown>(res);
+    throw new Error(`Unexpected response from the server (HTTP ${res.status}).`);
   }
 
   // Read the stream chunk by chunk. A chunk can end in the middle of a line, so we
@@ -82,19 +109,51 @@ export async function summarizeFile(
     const lines = buffer.split('\n');
     buffer = lines.pop() ?? '';
     for (const line of lines) {
-      if (!line.trim()) continue;
-      const event = JSON.parse(line) as SummarizeEvent;
-      if (event.type === 'progress') {
-        const { type: _type, ...progress } = event;
-        onProgress(progress);
-      } else if (event.type === 'result') {
-        return event.result;
-      } else {
-        throw new Error(event.error);
-      }
+      if (line.trim()) onEvent(JSON.parse(line) as Event);
     }
   }
-  throw new Error('The connection closed before the summary was ready. Please try again.');
+}
+
+/**
+ * RAG step 3: ask a question about the passages that search found. The answer arrives
+ * piece by piece: `onToken` is called with each new bit of text. Returns the model that answered.
+ */
+export async function askQuestion(
+  question: string,
+  passages: AskPassage[],
+  history: ChatTurn[],
+  onToken: (text: string) => void,
+): Promise<string> {
+  const body: AskRequest = { question, passages, history };
+  const res = await fetch('/api/ask', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+  let model: string | null = null;
+  await readNdjson<AskEvent>(res, (event) => {
+    if (event.type === 'token') onToken(event.text);
+    else if (event.type === 'done') model = event.model;
+    else throw new Error(event.error);
+  });
+  if (!model) throw new Error('The connection closed before the answer was complete. Please try again.');
+  return model;
+}
+
+/**
+ * RAG: turn a question into a vector, with the same embedding model as the document index.
+ * With `history`, the server first rewrites a follow-up into a standalone question;
+ * `searchQuery` in the response is what was actually searched.
+ */
+export async function embedQuery(text: string, model: string, history: ChatTurn[] = []): Promise<EmbedQueryResponse> {
+  const body: EmbedQueryRequest = { text, model, history };
+  const res = await fetch('/api/embed-query', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  return readJson<EmbedQueryResponse>(res);
 }
 
 export async function getHealth(): Promise<HealthResponse> {

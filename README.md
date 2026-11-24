@@ -82,18 +82,32 @@ pick file ──JSON { fileName, base64 } POST /api/summarize──▶ decode to
 4. Change `temperature` in `llm.ts` to 1.2 and summarize the same file twice.
 5. Add `stream: true` and stream the summary to the browser token by token (Server-Sent Events).
 
-## Roadmap to RAG + chat
+## Ask questions (RAG)
 
-RAG (Retrieval-Augmented Generation) = instead of sending the *whole* document, find only the chunks relevant to a question and send those.
+RAG (Retrieval-Augmented Generation) = instead of sending the *whole* document with every question, find only the passages relevant to it and send those. Under the summary, the **Ask** panel does the full loop:
 
-1. **Store documents.** Keep the extracted text and chunks after upload (start with a JSON file or SQLite).
-2. **Embeddings.** Turn each chunk into a vector (a list of numbers capturing meaning) via an embeddings endpoint. Gemini and Ollama (`nomic-embed-text`) both offer free ones. Same pattern as `llm.ts`: `POST /embeddings`.
-3. **Vector search.** Embed the user's question and find the chunks with the highest cosine similarity. Start with a plain in-memory array and a loop. Later use a vector DB (sqlite-vec, pgvector, Chroma, LanceDB).
-4. **Answer.** Prompt: "Answer using only these excerpts: …". Add the question and return the answer, ideally citing which chunks it used.
-5. **Chat.** Keep the message history on the client and send it with every question (the model is stateless).
-6. **Improve.** Better chunking (by headings/sentences), more docs per user, reranking, evaluation.
+```
+UPLOAD (once, alongside the summary)          ASK (each question)
+text → passages of ~1,500 chars                question → vector          (server: /api/embed-query)
+     → one vector per passage (embedding)        → compare with every passage
+     → sent to the browser, kept in memory         vector, keep the top 5  (browser: dot product)
+                                               → question + top 5 → LLM  (server: /api/ask)
+                                               → answer streamed back, citing [1]…[5]
+```
 
-`chunk.ts` and `llm.ts` are already the building blocks for steps 2–4.
+| Step | Where | What to learn there |
+|---|---|---|
+| 1. Index | [server/src/rag.ts](server/src/rag.ts), [embeddings.ts](server/src/embeddings.ts) | Chunk size for search vs. summaries, embeddings, normalizing and packing vectors |
+| 2. Retrieve | [client/src/rag.ts](client/src/rag.ts) | Cosine similarity = dot product of unit vectors, brute-force top-k search |
+| 3. Generate | [server/src/answer.ts](server/src/answer.ts), `chatStream` in [llm.ts](server/src/llm.ts) | Grounding prompt, citations, "not in the document", streaming LLM output (SSE) |
+| 4. Chat history | `rewriteQuestion` / `cleanHistory` in [answer.ts](server/src/answer.ts) | LLMs are stateless (history is resent every time), query rewriting for follow-ups |
+| UI | [client/src/components/AskPanel.tsx](client/src/components/AskPanel.tsx) | Chat turns, showing sources and scores, clickable citations |
+
+**Follow-up questions.** "And is it free?" has nothing to search for on its own. So when there's chat history, the server first asks the LLM to rewrite the follow-up into a standalone question ("Is Google Gemini free?") and searches *that*. The chat shows it as "Searched for: …". The answer step also receives the last few turns, so the model knows what "it" refers to.
+
+After summarizing, open the browser console and type `docdropIndex` to explore the passages and their raw vectors.
+
+**Next steps:** keeping documents and chats across reloads (IndexedDB), several documents at once, and later a vector database (pgvector, sqlite-vec) plus better retrieval (chunking by headings, hybrid keyword + vector search, reranking).
 
 ## Limitations (on purpose)
 

@@ -3,7 +3,9 @@ import { CircleAlert, FileText, Sparkles } from 'lucide-react';
 import Dropzone, { ACCEPTED_EXTENSIONS, MAX_FILE_BYTES } from './components/Dropzone';
 import SummaryCard, { SummarySkeleton } from './components/SummaryCard';
 import ProgressCard, { shortModel } from './components/ProgressCard';
+import AskPanel from './components/AskPanel';
 import { getHealth, summarizeFile } from './api';
+import { loadIndex, type LoadedIndex } from './rag';
 import type { ProgressStage, SummarizeResponse } from './types';
 
 // A "discriminated union": `status` tells TypeScript which other fields exist.
@@ -11,7 +13,8 @@ import type { ProgressStage, SummarizeResponse } from './types';
 type RequestState =
   | { status: 'idle' }
   | { status: 'loading'; progress: ProgressStage | null }
-  | { status: 'success'; result: SummarizeResponse }
+  // `index`: the document's passages + vectors, unpacked for searching (null = no Q&A)
+  | { status: 'success'; result: SummarizeResponse; index: LoadedIndex | null }
   | { status: 'error'; message: string };
 
 // null = still checking, string = connected (model name), false = offline
@@ -49,7 +52,17 @@ export default function App() {
     setState({ status: 'loading', progress: null });
     try {
       const result = await summarizeFile(file, (progress) => setState({ status: 'loading', progress }));
-      setState({ status: 'success', result });
+      const index = result.index ? loadIndex(result.index) : null;
+      setState({ status: 'success', result, index });
+
+      // For learning: the index is also explorable in the browser console.
+      // Try: docdropIndex.chunks[0], or docdropIndex.vectors.slice(0, docdropIndex.dimensions)
+      if (index) {
+        (window as unknown as { docdropIndex: LoadedIndex }).docdropIndex = index;
+        console.info(
+          `[rag] ${index.chunks.length} passages × ${index.dimensions} numbers (${index.model}). Inspect it as window.docdropIndex`,
+        );
+      }
     } catch (err) {
       setState({ status: 'error', message: err instanceof Error ? err.message : String(err) });
     }
@@ -78,11 +91,12 @@ export default function App() {
 
         <header className="mt-16 mb-10 text-center">
           <h1 className="text-4xl font-semibold tracking-tight text-balance sm:text-5xl">
-            Summarize any document{' '}
+            Understand any document{' '}
             <span className="bg-gradient-to-r from-brand-500 to-orange-500 bg-clip-text text-transparent">in seconds</span>
           </h1>
           <p className="mx-auto mt-4 max-w-md text-zinc-600 dark:text-zinc-400">
-            Upload a PDF, Word document or text file and get a short, structured summary powered by an LLM.
+            Upload a PDF, Word document or text file to get a structured summary, then ask questions and get answers
+            with sources from the document.
           </p>
         </header>
 
@@ -115,7 +129,12 @@ export default function App() {
               <SummarySkeleton />
             </div>
           )}
-          {state.status === 'success' && <SummaryCard result={state.result} />}
+          {state.status === 'success' && (
+            <div className="space-y-6">
+              <SummaryCard result={state.result} />
+              {state.index && <AskPanel index={state.index} />}
+            </div>
+          )}
         </div>
       </div>
     </div>
