@@ -113,9 +113,9 @@ export default function App() {
         )}
 
         {/* Two-column mode on big screens: both columns get the same fixed height (the screen
-            minus the top bar, capped at 42rem so they don't tower over big monitors).
+            minus the top bar, capped at 56rem so they don't tower over big monitors).
             The summary and the chat each scroll inside their own card. */}
-        <div className={chatIndex ? 'grid gap-6 lg:h-[min(calc(100vh-8rem),42rem)] lg:min-h-120 lg:grid-cols-2' : ''}>
+        <div className={chatIndex ? 'grid gap-6 lg:h-[min(calc(100vh-10rem),56rem)] lg:min-h-120 lg:grid-cols-2' : ''}>
           {/* Left (or only) column: upload + summary */}
           <div className={`min-w-0 space-y-4 ${chatIndex ? 'lg:flex lg:min-h-0 lg:flex-col' : ''}`}>
             <div className="shrink-0 space-y-4">
