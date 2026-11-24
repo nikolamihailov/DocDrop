@@ -70,8 +70,9 @@ function startNdjson<Event>(res: Response): (event: Event) => void {
 
 // RAG step 3: answer a question from the passages the browser's search picked.
 // Streams the answer as it's generated: { type: 'token' } events, then 'done' or 'error'.
-const MAX_PASSAGES = 8;
-const MAX_PASSAGE_CHARS = 30_000; // all passages together: keeps the prompt small and cheap
+// Big enough for a whole small document (client sends all passages up to ~12,000 chars)
+const MAX_PASSAGES = 20;
+const MAX_PASSAGE_CHARS = 20_000; // all passages together: keeps the prompt small and cheap
 
 app.post('/api/ask', async (req, res) => {
   const { question, passages, history } = (req.body ?? {}) as Partial<AskRequest>;

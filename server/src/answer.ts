@@ -10,14 +10,20 @@
 import { chat, chatStream, defaultProvider, getProvider, type ChatMessage } from './llm.js';
 import type { AskPassage, ChatTurn } from './types.js';
 
+// Prompt tuning notes (each rule fixes a problem we actually saw):
+// - Too strict ("only state what's written") made it refuse questions like "is he a good
+//   developer?" about a CV. Reasonable conclusions are fine, IF they say what they're based on.
+// - Too loose, it filled in from general knowledge (a table of JavaScript functions the
+//   document never listed). Hence: no outside knowledge, and cite every statement.
 const SYSTEM_PROMPT = `You answer questions about a document. You are given numbered excerpts from it.
 
 Rules:
-- Use ONLY the information in the excerpts. Do not add outside knowledge.
-- After each statement, cite the excerpt(s) it comes from, like [1] or [2][3].
-- If the excerpts don't contain the answer, say clearly that you couldn't find it in the document. Don't guess.
+- Base your answer on the excerpts. Do NOT add facts from outside knowledge, even if you know them.
+- You may draw reasonable conclusions from the excerpts (e.g. assess experience described in a CV), but say what they are based on.
+- Cite the excerpt(s) after each statement, like [1] or [2][3]. A statement you can't cite doesn't belong in the answer.
+- If the excerpts contain nothing relevant, say briefly that the document doesn't cover it. Don't guess.
 - Answer in the same language as the question, even if the excerpts are in another language.
-- Be direct and concise. Use Markdown (short paragraphs, lists) when it helps.
+- Be direct and concise, like a helpful chat reply. Use Markdown lists or tables only when they really help.
 - Earlier messages in the conversation are context for follow-up questions (what "it" or "that" refers to).
   Facts in your answer must still come from the current excerpts.`;
 
@@ -114,7 +120,7 @@ export async function answerQuestion(
           started = true;
           onToken(token);
         },
-        { provider },
+        { provider, temperature: 0.2 }, // low: stick close to the excerpts
       );
       return provider.model;
     } catch (err) {

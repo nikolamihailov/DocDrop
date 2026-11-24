@@ -3,7 +3,7 @@ import { CircleAlert, FileText, Sparkles } from 'lucide-react';
 import Dropzone, { ACCEPTED_EXTENSIONS, MAX_FILE_BYTES } from './components/Dropzone';
 import SummaryCard, { SummarySkeleton } from './components/SummaryCard';
 import ProgressCard, { shortModel } from './components/ProgressCard';
-import AskPanel from './components/AskPanel';
+import ChatPanel from './components/ChatPanel';
 import { getHealth, summarizeFile } from './api';
 import { loadIndex, type LoadedIndex } from './rag';
 import type { ProgressStage, SummarizeResponse } from './types';
@@ -69,6 +69,8 @@ export default function App() {
   }
 
   const loading = state.status === 'loading';
+  // The document's Q&A index, if the last summary produced one: then the chat is shown.
+  const chatIndex = state.status === 'success' ? state.index : null;
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-zinc-50 text-zinc-900 antialiased dark:bg-zinc-950 dark:text-zinc-100">
@@ -78,7 +80,8 @@ export default function App() {
         className="pointer-events-none absolute -top-40 left-1/2 h-[480px] w-[900px] -translate-x-1/2 rounded-full bg-gradient-to-br from-brand-400/30 via-rose-400/20 to-orange-300/15 blur-3xl dark:from-brand-600/25 dark:via-rose-600/15 dark:to-orange-500/10"
       />
 
-      <div className="relative mx-auto max-w-2xl px-4 pt-8 pb-20 sm:px-6">
+      {/* One column while uploading; two columns (document | chat) on big screens once there's a chat. */}
+      <div className={`relative mx-auto px-4 pt-8 pb-20 sm:px-6 ${chatIndex ? 'max-w-7xl lg:pb-6' : 'max-w-2xl'}`}>
         <nav className="flex items-center justify-between gap-4">
           <div className="flex shrink-0 items-center gap-2.5">
             <div className="grid size-9 place-items-center rounded-xl bg-gradient-to-br from-brand-500 to-orange-600 text-white shadow-lg shadow-brand-500/30">
@@ -89,50 +92,69 @@ export default function App() {
           <BackendBadge backend={backend} />
         </nav>
 
-        <header className="mt-16 mb-10 text-center">
-          <h1 className="text-4xl font-semibold tracking-tight text-balance sm:text-5xl">
-            Understand any document{' '}
-            <span className="bg-gradient-to-r from-brand-500 to-orange-500 bg-clip-text text-transparent">in seconds</span>
-          </h1>
-          <p className="mx-auto mt-4 max-w-md text-zinc-600 dark:text-zinc-400">
-            Upload a PDF, Word document or text file to get a structured summary, then ask questions and get answers
-            with sources from the document.
-          </p>
-        </header>
+        {/* The big title only while there's nothing to show yet: afterwards it's just scrolling. */}
+        {state.status !== 'success' ? (
+          <header className="mt-16 mb-10 text-center">
+            <h1 className="text-4xl font-semibold tracking-tight text-balance sm:text-5xl">
+              Understand any document{' '}
+              <span className="bg-gradient-to-r from-brand-500 to-orange-500 bg-clip-text text-transparent">
+                in seconds
+              </span>
+            </h1>
+            <p className="mx-auto mt-4 max-w-md text-zinc-600 dark:text-zinc-400">
+              Upload a PDF, Word document or text file to get a structured summary, then ask questions and get answers
+              with sources from the document.
+            </p>
+          </header>
+        ) : (
+          <div className="mt-8" />
+        )}
 
-        <div className="space-y-4">
-          <Dropzone file={file} onFileChange={handleFileChange} disabled={loading} />
+        {/* Two-column mode on big screens: both columns get the same fixed height (the screen
+            minus the top bar). The summary and the chat each scroll inside their own card. */}
+        <div className={chatIndex ? 'grid gap-6 lg:h-[calc(100vh-8rem)] lg:min-h-144 lg:grid-cols-2' : ''}>
+          {/* Left (or only) column: upload + summary */}
+          <div className={`min-w-0 space-y-4 ${chatIndex ? 'lg:flex lg:min-h-0 lg:flex-col' : ''}`}>
+            <div className="shrink-0 space-y-4">
+              <Dropzone file={file} onFileChange={handleFileChange} disabled={loading} />
 
-          <button
-            type="button"
-            onClick={handleSummarize}
-            disabled={!file || loading}
-            className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand-600 px-5 py-3 font-medium text-white shadow-lg shadow-brand-600/25 transition hover:bg-brand-500 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none"
-          >
-            {/* No spinner here: while loading, the progress card below shows what's happening. */}
-            <Sparkles className="size-5" />
-            {loading ? 'Summarizing…' : 'Summarize'}
-          </button>
+              <button
+                type="button"
+                onClick={handleSummarize}
+                disabled={!file || loading}
+                className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand-600 px-5 py-3 font-medium text-white shadow-lg shadow-brand-600/25 transition hover:bg-brand-500 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none"
+              >
+                {/* No spinner here: while loading, the progress card below shows what's happening. */}
+                <Sparkles className="size-5" />
+                {loading ? 'Summarizing…' : 'Summarize'}
+              </button>
 
-          {state.status === 'error' && (
-            <div className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
-              <CircleAlert className="mt-0.5 size-5 shrink-0" />
-              <p>{state.message}</p>
+              {state.status === 'error' && (
+                <div className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-300">
+                  <CircleAlert className="mt-0.5 size-5 shrink-0" />
+                  <p>{state.message}</p>
+                </div>
+              )}
             </div>
-          )}
-        </div>
 
-        <div className="mt-10">
-          {state.status === 'loading' && (
-            <div className="space-y-4">
-              <ProgressCard progress={state.progress} />
-              <SummarySkeleton />
-            </div>
-          )}
-          {state.status === 'success' && (
-            <div className="space-y-6">
-              <SummaryCard result={state.result} />
-              {state.index && <AskPanel index={state.index} />}
+            {state.status === 'loading' && (
+              <div className="space-y-4 pt-6">
+                <ProgressCard progress={state.progress} />
+                <SummarySkeleton />
+              </div>
+            )}
+            {state.status === 'success' && (
+              // In two-column mode this fills the rest of the column; the card scrolls inside.
+              <div className={`pt-2 ${chatIndex ? 'lg:min-h-0 lg:flex-1' : ''}`}>
+                <SummaryCard result={state.result} fill={!!chatIndex} />
+              </div>
+            )}
+          </div>
+
+          {/* Right column: the chat, exactly as tall as the left column */}
+          {chatIndex && (
+            <div className="min-w-0 lg:h-full lg:min-h-0">
+              <ChatPanel key={state.status === 'success' ? state.result.fileName : ''} index={chatIndex} />
             </div>
           )}
         </div>

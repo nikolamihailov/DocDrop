@@ -1,13 +1,19 @@
 import { useState } from 'react';
 import Markdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { Check, Copy, Search } from 'lucide-react';
 import type { SummarizeResponse } from '../types';
 
 interface SummaryCardProps {
   result: SummarizeResponse;
+  /**
+   * Two-column layout on big screens: fill the parent's height, keep header and footer
+   * in place, and scroll only the summary text in between.
+   */
+  fill?: boolean;
 }
 
-export default function SummaryCard({ result }: SummaryCardProps) {
+export default function SummaryCard({ result, fill = false }: SummaryCardProps) {
   const [copied, setCopied] = useState(false);
   const { stats } = result;
 
@@ -27,8 +33,8 @@ export default function SummaryCard({ result }: SummaryCardProps) {
   ];
 
   return (
-    <section className={cardClass}>
-      <header className="flex items-start justify-between gap-4 border-b border-zinc-200 px-6 py-4 dark:border-white/10">
+    <section className={`${cardClass} ${fill ? 'lg:flex lg:h-full lg:flex-col' : ''}`}>
+      <header className="flex shrink-0 items-start justify-between gap-4 border-b border-zinc-200 px-6 py-4 dark:border-white/10">
         <div className="min-w-0">
           <p className="text-xs font-semibold tracking-wider text-brand-600 uppercase dark:text-brand-400">Summary</p>
           <p className="truncate text-sm text-zinc-500 dark:text-zinc-400">{result.fileName}</p>
@@ -44,11 +50,14 @@ export default function SummaryCard({ result }: SummaryCardProps) {
       </header>
 
       {/* `prose` (typography plugin) styles the Markdown the model returns. */}
-      <div className="prose prose-zinc dark:prose-invert prose-headings:font-semibold prose-headings:tracking-tight prose-h2:mt-6 prose-h2:mb-2 prose-h2:text-lg first:prose-h2:mt-0 prose-li:my-1 prose-li:marker:text-brand-500 max-w-none px-6 py-5">
-        <Markdown>{result.summary}</Markdown>
+      <div
+        className={`prose prose-zinc dark:prose-invert prose-headings:font-semibold prose-headings:tracking-tight prose-h2:mt-6 prose-h2:mb-2 prose-h2:text-lg first:prose-h2:mt-0 prose-li:my-1 prose-li:marker:text-brand-500 max-w-none px-6 py-5 ${fill ? 'lg:min-h-0 lg:flex-1 lg:overflow-y-auto' : ''}`}
+      >
+        {/* remark-gfm adds GitHub-flavored Markdown: tables, strikethrough, task lists */}
+        <Markdown remarkPlugins={[remarkGfm]}>{result.summary}</Markdown>
       </div>
 
-      <footer className="flex flex-wrap gap-2 border-t border-zinc-200 px-6 py-3 dark:border-white/10">
+      <footer className="flex shrink-0 flex-wrap gap-2 border-t border-zinc-200 px-6 py-3 dark:border-white/10">
         {pills.map((pill) => (
           <span
             key={pill}
