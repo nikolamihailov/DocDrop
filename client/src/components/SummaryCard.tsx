@@ -67,7 +67,7 @@ export default function SummaryCard({ result, fill = false }: SummaryCardProps) 
 
       {/* `prose` (typography plugin) styles the Markdown the model returns. */}
       <div
-        className={`prose prose-zinc dark:prose-invert prose-headings:font-semibold prose-headings:tracking-tight prose-h2:mt-6 prose-h2:mb-2 prose-h2:text-lg first:prose-h2:mt-0 prose-li:my-1 prose-li:marker:text-brand-500 max-w-none px-6 py-5 ${fill ? 'lg:min-h-0 lg:flex-1 lg:overflow-y-auto' : ''} ${collapsed ? 'hidden lg:block' : ''}`}
+        className={`prose prose-zinc dark:prose-invert prose-headings:font-semibold prose-headings:tracking-tight prose-h2:mt-6 prose-h2:mb-2 prose-h2:text-lg first:prose-h2:mt-0 prose-li:my-1 prose-li:marker:text-brand-500 max-w-none px-6 py-5 ${fill ? 'lg:prose-sm lg:prose-h2:text-base lg:min-h-0 lg:flex-1 lg:overflow-y-auto' : ''} ${collapsed ? 'hidden lg:block' : ''}`}
       >
         {/* remark-gfm adds GitHub-flavored Markdown: tables, strikethrough, task lists */}
         <Markdown remarkPlugins={[remarkGfm]}>{result.summary}</Markdown>

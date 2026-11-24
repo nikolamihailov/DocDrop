@@ -74,11 +74,13 @@ export default function App() {
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-zinc-50 text-zinc-900 antialiased dark:bg-zinc-950 dark:text-zinc-100">
-      {/* Soft gradient glow behind the content */}
-      <div
-        aria-hidden
-        className="pointer-events-none absolute -top-40 left-1/2 h-[480px] w-[900px] -translate-x-1/2 rounded-full bg-gradient-to-br from-brand-400/30 via-rose-400/20 to-orange-300/15 blur-3xl dark:from-brand-600/25 dark:via-rose-600/15 dark:to-orange-500/10"
-      />
+      {/* Soft gradient glow behind the content. `fixed inset-0` pins it to the whole window,
+          so it covers the full page height and stays put while you scroll. */}
+      <div aria-hidden className="pointer-events-none fixed inset-0 overflow-hidden">
+        <div className="absolute -top-40 left-1/2 h-[480px] w-[900px] -translate-x-1/2 rounded-full bg-gradient-to-br from-brand-400/30 via-rose-400/20 to-orange-300/15 blur-3xl dark:from-brand-600/25 dark:via-rose-600/15 dark:to-orange-500/10" />
+        <div className="absolute -bottom-48 -left-32 h-[420px] w-[700px] rounded-full bg-gradient-to-tr from-brand-400/20 to-rose-300/10 blur-3xl dark:from-brand-700/20 dark:to-rose-700/10" />
+        <div className="absolute -right-40 -bottom-40 h-[380px] w-[600px] rounded-full bg-gradient-to-tl from-orange-300/15 to-brand-400/10 blur-3xl dark:from-orange-600/10 dark:to-brand-700/15" />
+      </div>
 
       {/* One column while uploading; two columns (document | chat) on big screens once there's a chat. */}
       <div className={`relative mx-auto px-4 pt-8 pb-20 sm:px-6 ${chatIndex ? 'max-w-7xl lg:pb-6' : 'max-w-2xl'}`}>
@@ -111,8 +113,9 @@ export default function App() {
         )}
 
         {/* Two-column mode on big screens: both columns get the same fixed height (the screen
-            minus the top bar). The summary and the chat each scroll inside their own card. */}
-        <div className={chatIndex ? 'grid gap-6 lg:h-[calc(100vh-8rem)] lg:min-h-144 lg:grid-cols-2' : ''}>
+            minus the top bar, capped at 42rem so they don't tower over big monitors).
+            The summary and the chat each scroll inside their own card. */}
+        <div className={chatIndex ? 'grid gap-6 lg:h-[min(calc(100vh-8rem),42rem)] lg:min-h-120 lg:grid-cols-2' : ''}>
           {/* Left (or only) column: upload + summary */}
           <div className={`min-w-0 space-y-4 ${chatIndex ? 'lg:flex lg:min-h-0 lg:flex-col' : ''}`}>
             <div className="shrink-0 space-y-4">
