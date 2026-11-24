@@ -101,7 +101,7 @@ text → passages of ~1,500 chars                question → vector          (s
 | 2. Retrieve | [client/src/rag.ts](client/src/rag.ts) | Cosine similarity = dot product of unit vectors, brute-force top-k search |
 | 3. Generate | [server/src/answer.ts](server/src/answer.ts), `chatStream` in [llm.ts](server/src/llm.ts) | Grounding prompt, citations, "not in the document", streaming LLM output (SSE) |
 | 4. Chat history | `rewriteQuestion` / `cleanHistory` in [answer.ts](server/src/answer.ts) | LLMs are stateless (history is resent every time), query rewriting for follow-ups |
-| UI | [client/src/components/AskPanel.tsx](client/src/components/AskPanel.tsx) | Chat turns, showing sources and scores, clickable citations |
+| UI | [client/src/components/ChatPanel.tsx](client/src/components/ChatPanel.tsx) | Chat UI; whole document vs. search (`WHOLE_DOCUMENT_MAX_CHARS`), sources and scores, clickable citations |
 
 **Follow-up questions.** "And is it free?" has nothing to search for on its own. So when there's chat history, the server first asks the LLM to rewrite the follow-up into a standalone question ("Is Google Gemini free?") and searches *that*. The chat shows it as "Searched for: …". The answer step also receives the last few turns, so the model knows what "it" refers to.
 

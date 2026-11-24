@@ -34,6 +34,34 @@
     color-scheme: dark;
   }
 
+  /* Scrollbars: thin, brand-red thumb on a transparent track, for the page and every
+     scrolling section (summary, chat). The standard properties work in Chrome, Edge
+     and Firefox; Safari only understands the older ::-webkit-scrollbar rules below. */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklab, var(--color-brand-600) 70%, transparent) transparent;
+  }
+  *:hover {
+    scrollbar-color: var(--color-brand-500) transparent;
+  }
+  @supports not (scrollbar-color: auto) {
+    ::-webkit-scrollbar {
+      width: 10px;
+      height: 10px;
+    }
+    ::-webkit-scrollbar-track {
+      background: transparent;
+    }
+    ::-webkit-scrollbar-thumb {
+      border: 3px solid transparent; /* with background-clip: a slim pill with breathing room */
+      border-radius: 9999px;
+      background: color-mix(in oklab, var(--color-brand-600) 70%, transparent) padding-box;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: var(--color-brand-500) padding-box;
+    }
+  }
+
   /* Tailwind v4 resets buttons to the default arrow cursor; bring back the pointer. */
   button:not(:disabled),
   [role='button']:not(:disabled) {
